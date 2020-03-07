@@ -46,7 +46,7 @@ impl SampleKey for usize {}
 
 impl SampleValue for f64 {}
 //
-pub trait Sample: Clone
+pub trait Sample: Clone + Debug
 {
     type Prototype: Prototype;
     type Key: SampleKey;
@@ -59,7 +59,7 @@ pub trait Sample: Clone
     fn slice(&self) -> &[Self::Value];
 }
 
-pub trait Feature
+pub trait Feature : Clone + Debug
 {
     type Sample: Sample;
     type Key: FeatureKey;
@@ -71,7 +71,7 @@ pub trait Feature
     fn slice(&self) -> &[Self::Value];
 }
 
-pub trait Prototype
+pub trait Prototype : Clone + Debug
 where
 {
     type Feature: Feature;
@@ -87,23 +87,12 @@ where
     fn double_select(&self,samples:&[Self::Sample],features:&[Self::Feature]) -> Array2<Self::Value>;
 }
 
+pub trait Parameters: Clone {
+    fn input_feature_subsample(&self) -> usize;
+    fn output_feature_subsample(&self) -> usize;
+    fn sample_subsample(&self) -> usize;
 
-//
-// pub struct Sample<K: SampleKey> {
-//     prototype: Arc<Prototype<>>,
-//     key: K,
-// }
-//
-// pub struct Prototype<V>
-// where
-//     V: SampleValue,
-// {
-//     array:Array2<V>,
-//     sorted_indices:Array2<usize>,
-//     features: Vec<Feature>,
-//     feature_map: HashMap<FeatureKey>
-// }
-
+}
 
 fn valsort<T: PartialOrd + Clone>(s:&[T]) -> Vec<(usize,T)>{
     let mut paired: Vec<(usize,T)> = s.into_iter().cloned().enumerate().collect();

@@ -57,6 +57,7 @@ pub trait LinkedVector: Sized
     type V: SampleValue;
     // type Arena: Index<Self::K,Output=Node<Self::K,Self::V>> + IndexMut<Self::K,Output=Node<Self::K,Self::V>> + Debug + Clone;
     type Arena: NodeArena<Self::K,Self::V>;
+    type Crawler: Iterator;
 
 
     fn arena(&self) -> &Self::Arena;
@@ -86,7 +87,10 @@ pub trait LinkedVector: Sized
         {self.arena_mut()[target_key] = target}
     }
 
-    fn left_crawler(&self,start:Self::K) -> LeftCrawler<Self> {
+    // fn left_crawler(&self,start:Self::K) -> LeftCrawler<Self> {
+    //     LeftCrawler{vector:&self,key:start}
+    // }
+    fn left_crawler(&self,start:Self::K) -> Self::Crawler {
         LeftCrawler{vector:&self,key:start}
     }
 
