@@ -99,7 +99,6 @@ pub trait LinkedVector: Sized
 
 trait SegmentedVector: LinkedVector
 {
-
     type Segment: Segment<Self::K,Self::V>;
 
     fn len(&self) -> usize;
@@ -220,6 +219,35 @@ trait SegmentedVector: LinkedVector
             {self.arena_mut()[*final_key] = node};
             {self.arena_mut()[cap_key].previous = *final_key}
         }
+        self.balance();
+        println!("Linking almost done");
+        println!("{:?}",self.arena());
+        // println!("{:?}",self.segments());
+        self
+    }
+
+
+    fn link_iterator<T:Iterator<Item=(Self::K,Self::V)>>(&mut self, sorted_input:T,length:usize) -> &mut Self {
+        let input_len = length;
+        let mut previous_key = self.segments()[0].left();
+        for (key,value) in sorted_input {
+            let node = Node {
+                next:key,
+                previous: previous_key,
+                value: value,
+                squared_value: Pow::<i8>::pow(value,2),
+                key: key,
+                segment: 0,
+            };
+            {self.segments_mut()[0].push(&node)}
+            {self.arena_mut()[previous_key].next = key}
+            {self.arena_mut()[key] = node};
+            previous_key = key;
+            println!("finished key {:?}",previous_key);
+        }
+        let cap_key = self.segments()[0].right();
+        {self.arena_mut()[previous_key].next = cap_key};
+        {self.arena_mut()[cap_key].previous = previous_key}
         self.balance();
         println!("Linking almost done");
         println!("{:?}",self.arena());
@@ -462,10 +490,10 @@ where
 
 }
 
-impl<A,V> MedianArena<V,A>
+impl<'a,A,V> MedianArena<V,A>
 where
-    V: SampleValue,
-    A: NodeArena<usize,V>,
+    V: SampleValue + 'a,
+    A: NodeArena<usize,V> + 'a,
 {
 
         fn with_capacity(capacity:usize) -> MedianArena<V,A> {
@@ -505,6 +533,13 @@ where
         pub fn link(sorted_input:&[(usize,V)]) -> Self {
             let mut mv = Self::with_capacity(sorted_input.len());
             SegmentedVector::link(&mut mv,sorted_input);
+            mv.balance();
+            mv
+        }
+
+        pub fn link_iterator<T:Iterator<Item=&'a (usize,V)>>(sorted_input: T,length:usize) -> Self {
+            let mut mv = Self::with_capacity(length);
+            SegmentedVector::link_iterator(&mut mv,sorted_input.cloned(),length);
             mv.balance();
             mv
         }
@@ -768,6 +803,32 @@ mod random_forest_tests {
         }
     }
 
+
+
+    #[test]
+    fn random_median_iter_test() {
+
+        let floats = random_floats();
+        let draw_order = random_draw_order();
+        let mut argsorted: Vec<(usize,f64)> = floats.into_iter().enumerate().collect();
+        argsorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let mut mv = MedianVector::link_iterator(argsorted.iter(),1000);
+        for i in draw_order {
+            mv.pop(i);
+            let ordered_values = mv.ordered_values();
+            if (slow_median(&ordered_values)-mv.median()).abs() > 0.000001 {
+                println!("{:?}",(slow_median(&ordered_values),mv.median()));
+                println!("{:?}",(slow_median(&ordered_values)-mv.median()).abs());
+                panic!();
+            }
+            if (slow_ssme(&ordered_values)-mv.ssme()).abs() > 0.000001 {
+                println!("{:?}",(slow_ssme(&ordered_values),mv.ssme()));
+                println!("{:?}",(slow_ssme(&ordered_values)-mv.ssme()).abs());
+                panic!();
+            }
+
+        }
+    }
 
 }
 
