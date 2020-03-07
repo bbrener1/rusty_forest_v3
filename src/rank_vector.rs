@@ -1,19 +1,10 @@
-use std::f64;
 use std::fmt;
-use std::hash::Hash;
-use std::cmp::Eq;
-use num_traits::{Num,Zero,PrimInt,FromPrimitive,ToPrimitive,NumCast,Pow,};
-use std::convert::{From};
-use std::marker::PhantomData;
-use std::collections::{HashSet,HashMap};
+use num_traits::{Pow};
+use std::ops::{Index,IndexMut};
 use std::cmp::Ordering;
-use smallvec::SmallVec;
-use std::ops::{Index,IndexMut,SubAssign, AddAssign,Mul};
 use std::fmt::Debug;
 use std::clone::Clone;
-use std::borrow::{Borrow,BorrowMut};
-use std::iter::{Take,Skip,FlatMap,Chain};
-use crate::io::DropMode;
+use std::iter::{Take,Skip};
 use crate::{SampleKey,SampleValue};
 
 
@@ -64,7 +55,8 @@ pub trait LinkedVector: Sized
 {
     type K: SampleKey;
     type V: SampleValue;
-    type Arena: Index<Self::K,Output=Node<Self::K,Self::V>> + IndexMut<Self::K,Output=Node<Self::K,Self::V>> + Debug;
+    // type Arena: Index<Self::K,Output=Node<Self::K,Self::V>> + IndexMut<Self::K,Output=Node<Self::K,Self::V>> + Debug + Clone;
+    type Arena: NodeArena<Self::K,Self::V>;
 
 
     fn arena(&self) -> &Self::Arena;
@@ -94,74 +86,76 @@ pub trait LinkedVector: Sized
         {self.arena_mut()[target_key] = target}
     }
 
-    fn left_crawler(&self,start:Self::K) -> LeftCrawler<Self,Self::K,Self::V> {
-        LeftCrawler{vector:&self,key:start,phantom:PhantomData}
+    fn left_crawler(&self,start:Self::K) -> LeftCrawler<Self> {
+        LeftCrawler{vector:&self,key:start}
     }
 
-    fn right_crawler(&self,start:Self::K) -> RightCrawler<Self,Self::K,Self::V> {
-        RightCrawler{vector:&self,key:start,phantom:PhantomData}
+    fn right_crawler(&self,start:Self::K) -> RightCrawler<Self> {
+        RightCrawler{vector:&self,key:start}
     }
 
 
 }
 
-pub trait SegmentedVector: LinkedVector + Sized
+trait SegmentedVector: LinkedVector
 {
 
-    type V: SampleValue
+    type Segment: Segment<Self::K,Self::V>;
 
     fn len(&self) -> usize;
     fn balance(&mut self);
-    fn segments(&self) -> &[IndexSegment<V>];
-    fn segments_mut(&mut self) -> &mut [IndexSegment<V>];
+    fn segments(&self) -> &[Self::Segment];
+    fn segments_mut(&mut self) -> &mut [Self::Segment];
+    fn endcaps(&self,segment:usize) -> (Node<Self::K,Self::V>,Node<Self::K,Self::V>);
 
-    fn crawl_segment_reverse(&self,segment:usize) -> Take<Skip<LeftCrawler<Self,usize,V>>> {
-        self.left_crawler(self.segments()[segment].right).skip(1).take(self.segments()[segment].len())
+
+    fn crawl_segment_reverse(&self,segment:usize) -> Take<Skip<LeftCrawler<Self>>> {
+        self.left_crawler(self.segments()[segment].right()).skip(1).take(self.segments()[segment].len())
     }
 
-    fn crawl_segment_ordered(&self,segment:usize) -> Take<Skip<RightCrawler<Self,usize,V>>> {
-        self.right_crawler(self.segments()[segment].left).skip(1).take(self.segments()[segment].len())
+    fn crawl_segment_ordered(&self,segment:usize) -> Take<Skip<RightCrawler<Self>>> {
+        self.right_crawler(self.segments()[segment].left()).skip(1).take(self.segments()[segment].len())
     }
 
-    fn ordered_values(&self) -> Vec<V>{
+    fn ordered_values(&self) -> Vec<Self::V>{
         (0..self.segments().len()).flat_map(|s| self.crawl_segment_ordered(s)).map(|n| n.value).collect()
     }
 
-    fn ordered_indices(&self) -> Vec<usize>{
+    fn ordered_indices(&self) -> Vec<Self::K>{
         (0..self.segments().len()).flat_map(|s| self.crawl_segment_ordered(s)).map(|n| n.key).collect()
     }
 
-    fn pop(&mut self,key:usize) {
+    fn pop(&mut self,key:Self::K) {
         let target = LinkedVector::unlink_node(self,key);
         let segment = &mut self.segments_mut()[target.segment];
         segment.pop(&target);
         self.balance();
     }
 
-    fn push_segment_left(&mut self,segment:usize,mut node:Node<usize,V>) {
-        let left_cap = {self.segments()[segment].left};
+    fn push_segment_left(&mut self,segment:usize,node:Node<Self::K,Self::V>) {
+        let left_cap = {self.segments()[segment].left()};
         let left_edge = {self.arena()[left_cap].next};
         self.segments_mut()[segment].push(&node);
         self.insert_node(left_cap, node, left_edge)
     }
 
-    fn pop_segment_left(&mut self,segment:usize) -> Node<usize,V> {
-        let left_cap = {self.segments()[segment].left};
+    fn pop_segment_left(&mut self,segment:usize) -> Node<Self::K,Self::V> {
+        let left_cap = {self.segments()[segment].left()};
         let left_edge = {self.arena()[left_cap].next};
         let node = self.unlink_node(left_edge);
         self.segments_mut()[segment].pop(&node);
         node
     }
 
-    fn push_segment_right(&mut self,segment:usize,mut node:Node<usize,V>) {
-        let right_cap = {self.segments()[segment].right};
+    fn push_segment_right(&mut self,segment:usize, node:Node<Self::K,Self::V>) {
+        let right_cap = {self.segments()[segment].right()};
         let right_edge = {self.arena()[right_cap].previous};
         self.segments_mut()[segment].push(&node);
         self.insert_node(right_edge, node, right_cap)
     }
 
-    fn pop_segment_right(&mut self,segment:usize) -> Node<usize,V> {
-        let right_cap = {self.segments()[segment].right};
+    fn pop_segment_right(&mut self,segment:usize) -> Node<Self::K,Self::V> {
+        let right_cap = {self.segments()[segment].right()};
         let right_edge = {self.arena()[right_cap].previous};
         let node = self.unlink_node(right_edge);
         self.segments_mut()[segment].pop(&node);
@@ -169,33 +163,32 @@ pub trait SegmentedVector: LinkedVector + Sized
     }
 
     fn shift_boundary_left(&mut self,segment_left:usize,segment_right:usize) {
-        let mut target = self.pop_segment_right(segment_left);
+        let target = self.pop_segment_right(segment_left);
         self.push_segment_left(segment_right, target);
         println!("shifted bound left {:?}",(segment_left,segment_right));
-        println!("{:?}",self.segments());
+        // println!("{:?}",self.segments());
     }
 
     fn shift_boundary_right(&mut self,segment_left:usize,segment_right:usize) {
-        let mut target = self.pop_segment_left(segment_right);
+        let target = self.pop_segment_left(segment_right);
         self.push_segment_right(segment_left, target);
         println!("shifted bound left {:?}",(segment_left,segment_right));
-        println!("{:?}",self.segments());
+        // println!("{:?}",self.segments());
     }
 
-    fn initialize(&mut self,len:usize) {
+    fn initialize(&mut self) {
         let seg_len = {self.segments().len()};
         for i in 0..seg_len {
-            // println!("Initializing segment {:?}",i);
-            // println!("{:?},{:?}",len + (i*2),len + (i*2) + 1);
-            let (seg,(e1,e2)) = IndexSegment::offset_segment(len,i);
+            let (e1,e2) = self.endcaps(i);
+            let seg = Segment::from_endcaps(&e1,&e2);
             {self.segments_mut()[i] = seg;}
-            {self.arena_mut()[len + (i*2)] = e1;}
-            {self.arena_mut()[len + (i*2) + 1] = e2;}
+            {self.arena_mut()[e1.key] = e1;}
+            {self.arena_mut()[e2.key] = e2;}
         }
     }
 
 
-    fn link(&mut self, sorted_input:&[(usize,V)]) -> &mut Self {
+    fn link(&mut self, sorted_input:&[(Self::K,Self::V)]) -> &mut Self {
         let input_len = sorted_input.len();
         let mut previous_key = self.segments()[0].left();
         for ((key,value),(next_key,_)) in sorted_input.iter().zip(sorted_input.iter().skip(1)) {
@@ -203,7 +196,7 @@ pub trait SegmentedVector: LinkedVector + Sized
                 next:*next_key,
                 previous: previous_key,
                 value: *value,
-                squared_value: value.pow(2),
+                squared_value: Pow::<i8>::pow(*value,2),
                 key: *key,
                 segment: 0,
             };
@@ -214,12 +207,12 @@ pub trait SegmentedVector: LinkedVector + Sized
             println!("finished key {:?}",previous_key);
         }
         if let Some((final_key,final_value)) = sorted_input.last() {
-            let cap_key = self.segments()[0].right;
+            let cap_key = self.segments()[0].right();
             let node = Node {
                 next:cap_key,
                 previous: previous_key,
                 value: *final_value,
-                squared_value: final_value.pow(2),
+                squared_value: Pow::<i8>::pow(*final_value,2),
                 key: *final_key,
                 segment: 0,
             };
@@ -230,32 +223,29 @@ pub trait SegmentedVector: LinkedVector + Sized
         self.balance();
         println!("Linking almost done");
         println!("{:?}",self.arena());
-        println!("{:?}",self.segments());
+        // println!("{:?}",self.segments());
         self
     }
 
 }
 
-pub struct RightCrawler<'v,SV,K,V>
+
+pub struct RightCrawler<'v,LV>
 where
-    SV:LinkedVector<K,V>,
-    K: SampleKey,
-    V: SampleValue,
- {
-    vector: &'v SV,
-    key: K,
-    phantom: PhantomData<(&'v V,&'v K)>
+    LV:LinkedVector,
+
+{
+    vector: &'v LV,
+    key: LV::K,
 }
 
-impl<'v,SV,K,V> Iterator for RightCrawler<'v,SV,K,V>
+impl<'v,LV> Iterator for RightCrawler<'v,LV>
 where
-    SV:LinkedVector<K,V>,
-    K: SampleKey,
-    V: SampleValue,
+    LV: LinkedVector,
 {
-    type Item = &'v Node<K,V>;
+    type Item = &'v Node<LV::K,LV::V>;
 
-    fn next(&mut self) -> Option<&'v Node<K,V>> {
+    fn next(&mut self) -> Option<&'v Node<LV::K,LV::V>> {
         println!("Crawling right:{:?}",self.key);
         let node = &self.vector.arena()[self.key];
         self.key = node.next;
@@ -264,26 +254,21 @@ where
 }
 
 
-pub struct LeftCrawler<'v,SV,K,V>
+pub struct LeftCrawler<'v,LV>
 where
-    SV:LinkedVector<K,V>,
-    K: SampleKey,
-    V: SampleValue,
+    LV:LinkedVector
  {
-    vector: &'v SV,
-    key: K,
-    phantom: PhantomData<(&'v V,&'v K)>
+    vector: &'v LV,
+    key: LV::K,
 }
 
-impl<'v,SV,K,V> Iterator for LeftCrawler<'v,SV,K,V>
+impl<'v,LV> Iterator for LeftCrawler<'v,LV>
 where
-    SV:LinkedVector<K,V>,
-    K: SampleKey,
-    V: SampleValue,
+    LV:LinkedVector,
 {
-    type Item = &'v Node<K,V>;
+    type Item = &'v Node<LV::K,LV::V>;
 
-    fn next(&mut self) -> Option<&'v Node<K,V>> {
+    fn next(&mut self) -> Option<&'v Node<LV::K,LV::V>> {
 
         let node = &self.vector.arena()[self.key];
         self.key = node.previous;
@@ -292,10 +277,7 @@ where
 }
 
 
-trait Segment<K,V>
-where
-    K: SampleKey,
-    V: SampleValue,
+trait Segment<K:SampleKey,V:SampleValue>
 {
 
     fn left(&self) -> K;
@@ -307,6 +289,8 @@ where
     fn len_mut(&mut self) -> &mut usize;
     fn sum_mut(&mut self) -> &mut V;
     fn squared_sum_mut(&mut self) -> &mut V;
+
+    fn from_endcaps(e1:&Node<K,V>,e2:&Node<K,V>) -> Self;
 
     fn pop(&mut self,node:&Node<K,V>) {
         println!("Popping {:?}", node);
@@ -325,7 +309,7 @@ where
 }
 
 #[derive(Clone,Copy,Debug,Serialize,Deserialize)]
-struct IndexSegment<V: SampleValue> {
+pub struct IndexSegment<V:SampleValue> {
     left:usize,
     right:usize,
     sum:V,
@@ -333,7 +317,8 @@ struct IndexSegment<V: SampleValue> {
     len:usize,
 }
 
-impl<V: SampleValue> Segment<usize,V> for IndexSegment<V> {
+impl<V:SampleValue> Segment<usize,V> for IndexSegment<V> {
+
     fn left(&self) -> usize {
         self.left
     }
@@ -360,12 +345,24 @@ impl<V: SampleValue> Segment<usize,V> for IndexSegment<V> {
         &mut self.squared_sum
     }
 
+    fn from_endcaps(e1:&Node<usize,V>,e2:&Node<usize,V>) -> Self {
+        IndexSegment {
+            left: e1.key,
+            right: e2.key,
+            sum: V::zero(),
+            squared_sum: V::zero(),
+            len: 0,
+        }
+    }
+
 }
+//
+// trait IndexedSegmentedVector: SegmentedVector<K=usize,Segment=IndexSegment<Self>> {}
 
 impl<V:SampleValue> IndexSegment<V> {
 
     fn blank() -> IndexSegment<V> {
-        IndexSegment{
+        IndexSegment {
             left:0,
             right:0,
             sum:V::zero(),
@@ -374,15 +371,63 @@ impl<V:SampleValue> IndexSegment<V> {
         }
     }
 
-    fn offset_segment(offset:usize,segment:usize) -> (IndexSegment<V>,(Node<usize,V>,Node<usize,V>)) {
-        let i1 = offset+(segment*2);
-        let i2 = offset+(segment*2)+1;
-        let vec_seg = IndexSegment {
-            left: i1,
-            right: i2,
-            sum: V::zero(),
-            squared_sum: V::zero(),
-            len: 0,};
+}
+
+#[derive(Clone,Debug,Serialize,Deserialize)]
+pub struct MedianArena<V,A>
+where
+    V:SampleValue,
+    A:NodeArena<usize,V>,
+{
+    segments: [IndexSegment<V>;3],
+    arena: A,
+}
+
+pub type MedianArray<V:SampleValue> = MedianArena<V,NodeArray<V>>;
+pub type MedianVector<V:SampleValue> = MedianArena<V,Vec<Node<usize,V>>>;
+
+impl<A,V> LinkedVector for MedianArena<V,A>
+where
+    V:SampleValue,
+    A:NodeArena<usize,V>,
+{
+    type K = usize;
+    type V = V;
+    type Arena = A;
+
+    fn arena(&self) -> &Self::Arena {
+        &self.arena
+    }
+
+    fn arena_mut(&mut self) -> &mut Self::Arena {
+        &mut self.arena
+    }
+}
+
+
+impl<A,V> SegmentedVector for MedianArena<V,A>
+where
+    V: SampleValue,
+    A: NodeArena<usize,V>,
+{
+
+    type Segment = IndexSegment<Self::V>;
+
+    fn len(&self) -> usize {
+        self.segments().iter().map(|s| s.len()).sum()
+    }
+
+    fn segments(&self) -> &[IndexSegment<Self::V>] {
+        &self.segments
+    }
+    fn segments_mut(&mut self) -> &mut [IndexSegment<Self::V>] {
+        &mut self.segments
+    }
+
+    fn endcaps(&self,segment:usize) -> (Node<usize,V>,Node<usize,V>) {
+        let offset = (self.arena().len() - 6) + (segment*2);
+        let i1 = offset;
+        let i2 = offset + 1;
         let e1 = Node {
             key: i1,
             value: V::zero(),
@@ -399,56 +444,7 @@ impl<V:SampleValue> IndexSegment<V> {
             next: i2,
             segment:segment,
         };
-        (vec_seg,(e1,e2))
-    }
-
-}
-
-#[derive(Clone,Debug,Serialize,Deserialize)]
-pub struct MedianArena<A,V>
-where
-    A: NodeArena<usize,V>,
-    V: SampleValue,
-{
-    segments: [IndexSegment<V>;3],
-    arena: A,
-}
-
-type MedianArray<V:SampleValue> = MedianArena<NodeArray<V>,V>;
-type MedianVector<V:SampleValue> = MedianArena<Vec<Node<usize,V>>,V>;
-
-impl<A,V> LinkedVector<usize,V> for MedianArena<A,V>
-where
-    A: NodeArena<usize,V>,
-    V: SampleValue,
-{
-    type Arena = A;
-
-    fn arena(&self) -> &Self::Arena {
-        &self.arena
-    }
-
-    fn arena_mut(&mut self) -> &mut Self::Arena {
-        &mut self.arena
-    }
-}
-
-
-impl<A,V> SegmentedVector<V> for MedianArena<A,V>
-where
-    A: NodeArena<usize,V>,
-    V: SampleValue,
-{
-
-    fn len(&self) -> usize {
-        self.segments().iter().map(|s| s.len()).sum()
-    }
-
-    fn segments(&self) -> &[IndexSegment<V>] {
-        &self.segments
-    }
-    fn segments_mut(&mut self) -> &mut [IndexSegment<V>] {
-        &mut self.segments
+        (e1,e2)
     }
 
     fn balance(&mut self) {
@@ -466,19 +462,19 @@ where
 
 }
 
-impl<A,V> MedianArena<A,V>
+impl<A,V> MedianArena<V,A>
 where
-    A: NodeArena<usize,V>,
     V: SampleValue,
+    A: NodeArena<usize,V>,
 {
 
-        fn with_capacity(capacity:usize) -> MedianArena<A,V> {
+        fn with_capacity(capacity:usize) -> MedianArena<V,A> {
 
             let mut mv = MedianArena{
                 segments: [IndexSegment::blank();3],
                 arena: NodeArena::<usize,V>::with_capacity(capacity+6),
             };
-            mv.initialize(capacity);
+            mv.initialize();
             mv
         }
 
@@ -506,7 +502,7 @@ where
             // println!("{:?}",self.segments());
         }
 
-        fn link(sorted_input:&[(usize,V)]) -> Self {
+        pub fn link(sorted_input:&[(usize,V)]) -> Self {
             let mut mv = Self::with_capacity(sorted_input.len());
             SegmentedVector::link(&mut mv,sorted_input);
             mv.balance();
@@ -546,28 +542,74 @@ where
 }
 
 
-pub trait NodeArena<K:SampleKey,V:SampleValue>: Index<usize,Output=Node<usize,V>> + IndexMut<usize,Output=Node<usize,V>> + Debug + Clone {
+// pub trait NodeArena: Index<Self::K> + Debug + Clone {
+//
+//     const ARRAY_LIMIT:usize = 1024;
+//
+//     type K: SampleKey;
+//     type V: SampleValue;
+//
+//     fn with_capacity(capacity:usize) -> Self;
+//     fn index(index:&Self::K) -> &Node<Self::K,Self::V>;
+//     fn index_mut(index:&mut Self::K) -> &mut Node<Self::K,Self::V>;
+// }
+
+
+// impl<T:NodeArena> Index<T::K> for T {type Output = Node<T::K,T::V>;}
+// impl<T:NodeArena> IndexMut<T::K> for T {}
+
+// pub trait NodeArena<LV:LinkedVector<K=usize>>: Index<LV::K,Output=Node<LV::K,LV::V>> + IndexMut<LV::K,Output=Node<LV::K,LV::V>> + Debug + Clone {
+//
+//     const ARRAY_LIMIT:usize = 1024;
+//
+//     type K: SampleKey;
+//     type V: SampleValue;
+//
+//     fn with_capacity(capacity:usize) -> Self;
+//     fn index()
+// }
+
+
+//
+
+pub trait NodeArena<K:SampleKey,V:SampleValue>: Index<K,Output=Node<K,V>> + IndexMut<K,Output=Node<K,V>> + Debug + Clone {
     const ARRAY_LIMIT:usize = 1024;
+
     fn with_capacity(capacity:usize) -> Self;
+    fn len(&self) -> usize;
 }
 
-impl<V: SampleValue> NodeArena<usize,V> for Vec<Node<usize,V>>{
+impl<V> NodeArena<usize,V> for Vec<Node<usize,V>>
+where
+    V: SampleValue,
+{
     fn with_capacity(capacity:usize) -> Vec<Node<usize,V>> {
-        vec![Node::blank(0);capacity]
+        vec![Node::<usize,V>::blank(0);capacity]
+    }
+
+    fn len(&self) -> usize {
+        self.len()
     }
 }
-impl<V: SampleValue> NodeArena<usize,V> for NodeArray<V>{
+
+impl<V> NodeArena<usize,V> for NodeArray<V>
+where
+    V: SampleValue,
+{
     fn with_capacity(capacity:usize) -> NodeArray<V> {
         if capacity <= 1018 { NodeArray([Node::blank(0);1024])}
         else {panic!("Exceeded capacity of array: {:?}",capacity)}
     }
 
+    fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 #[derive(Clone)]
 pub struct NodeArray<V:SampleValue>([Node<usize,V>;1024]);
 
-impl<V> Index<usize> for NodeArray<V>
+impl<V:SampleValue> Index<usize> for NodeArray<V>
 where
     V: SampleValue,
 {
