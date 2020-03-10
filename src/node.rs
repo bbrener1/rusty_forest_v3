@@ -19,8 +19,8 @@ use crate::SampleKey;
 use crate::FeatureKey;
 use crate::SampleValue;
 use crate::Prototype;
-use crate::Parameters;
-use crate::io::DispersionMode;
+use crate::io::Parameters;
+// use crate::io::DispersionMode;
 use crate::rank_vector::FeatureVector;
 use crate::nipals::calculate_projection;
 use crate::valsort;
@@ -31,9 +31,9 @@ use rayon::prelude::*;
 trait Node : Clone
 {
     type Value: SampleValue;
-    type Sample: Sample;
-    type Feature: Feature;
-    type Prototype: Prototype<Value=Self::Value,Sample=Self::Sample,Feature=Self::Feature>;
+    type Sample: SampleKey;
+    type Feature: FeatureKey;
+    type Prototype: Prototype<Value=Self::Value,Sample=Self::Sample,Feature=Self::Feature,Parameters=Self::Parameters>;
     type Parameters: Parameters;
 
 
@@ -42,23 +42,31 @@ trait Node : Clone
     fn input_features(&self) -> &[Self::Feature];
     fn output_features(&self) -> &[Self::Feature];
     fn stencil(&self) -> &[usize];
-    fn set_stencil(&mut self,Vec<usize>);
 
-    fn parameters(&self) -> Self::Parameters;
+    fn parameters(&self) -> &Self::Parameters {
+        self.prototype().parameters()
+    }
 }
 
 trait ComputeNode: Node
 {
-    type ComputeVector: FeatureVector;
     //
     fn split(&mut self) {
+
         let input_feature_subsample = fast_subsample(self.input_features(), self.parameters().input_feature_subsample());
         let output_feature_subsample = fast_subsample(self.output_features(), self.parameters().output_feature_subsample());
         let sample_subsample = fast_subsample(self.samples(), self.parameters().sample_subsample());
-        let output_intermediate = self.prototype().double_select(&sample_subsample,&output_feature_subsample);
+
+        let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
         let (reduction,reduced_intermediate) = calculate_projection(output_intermediate);
         let valsorted = valsort(reduced_intermediate.slice(s![..]).into_slice().unwrap());
         let mut mv = MedianArray::link(&valsorted);
+
+        let draw_order_iterators = self.draw_order_iterators(&input_feature_subsample);
+        for doi in draw_order_iterators.into_iter() {
+
+        }
+
 
     }
 

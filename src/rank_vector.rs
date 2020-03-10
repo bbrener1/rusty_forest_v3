@@ -57,7 +57,6 @@ pub trait LinkedVector: Sized
     type V: SampleValue;
     // type Arena: Index<Self::K,Output=Node<Self::K,Self::V>> + IndexMut<Self::K,Output=Node<Self::K,Self::V>> + Debug + Clone;
     type Arena: NodeArena<Self::K,Self::V>;
-    type Crawler: Iterator;
 
 
     fn arena(&self) -> &Self::Arena;
@@ -87,12 +86,12 @@ pub trait LinkedVector: Sized
         {self.arena_mut()[target_key] = target}
     }
 
-    // fn left_crawler(&self,start:Self::K) -> LeftCrawler<Self> {
-    //     LeftCrawler{vector:&self,key:start}
-    // }
-    fn left_crawler(&self,start:Self::K) -> Self::Crawler {
+    fn left_crawler(&self,start:Self::K) -> LeftCrawler<Self> {
         LeftCrawler{vector:&self,key:start}
     }
+    // fn left_crawler(&self,start:Self::K) -> Self::Crawler {
+    //     LeftCrawler{vector:&self,key:start}
+    // }
 
     fn right_crawler(&self,start:Self::K) -> RightCrawler<Self> {
         RightCrawler{vector:&self,key:start}
@@ -199,7 +198,7 @@ trait SegmentedVector: LinkedVector
                 next:*next_key,
                 previous: previous_key,
                 value: *value,
-                squared_value: Pow::<i8>::pow(*value,2),
+                squared_value: Pow::<u8>::pow(*value,2),
                 key: *key,
                 segment: 0,
             };
@@ -215,7 +214,7 @@ trait SegmentedVector: LinkedVector
                 next:cap_key,
                 previous: previous_key,
                 value: *final_value,
-                squared_value: Pow::<i8>::pow(*final_value,2),
+                squared_value: Pow::<u8>::pow(*final_value,2),
                 key: *final_key,
                 segment: 0,
             };
@@ -239,7 +238,7 @@ trait SegmentedVector: LinkedVector
                 next:key,
                 previous: previous_key,
                 value: value,
-                squared_value: Pow::<i8>::pow(value,2),
+                squared_value: Pow::<u8>::pow(value,2),
                 key: key,
                 segment: 0,
             };
