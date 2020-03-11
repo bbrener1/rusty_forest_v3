@@ -88,235 +88,49 @@ use num_traits::Zero;
 
 
 
-//
-//
-//
-// pub trait Parameters: Clone + Debug {
-//     type Value: SampleValue;
-//
-//     fn blank() -> Self;
-//
-//     fn input_count_array_file(&self) -> &String;
-//     fn input_array(&self) -> &Option<Array2<Self::Value>>;
-//     fn output_count_array_file(&self) -> &String;
-//     fn output_array(&self) -> &Option<Array2<Self::Value>>;
-//     fn input_feature_header_file(&self) -> &Option<String>;
-//     fn input_feature_names(&self) -> &Vec<String>;
-//     fn output_feature_header_file(&self) -> &Option<String>;
-//     fn output_feature_names(&self) -> &Vec<String>;
-//     fn sample_header_file(&self) -> &Option<String>;
-//     fn sample_names(&self) -> &Vec<String>;
-//     fn report_address(&self) -> &String;
-//
-//     fn processor_limit(&self) -> usize;
-//     fn tree_limit(&self) -> usize;
-//     fn leaf_size_cutoff(&self) -> usize;
-//     fn depth_cutoff(&self) -> usize;
-//     fn dropout(&self) -> &DropMode;
-//
-//     fn feature_subsample(&self) -> usize;
-//     fn sample_subsample(&self) -> usize;
-//     fn input_feature_subsample(&self) -> usize;
-//     fn output_feature_subsample(&self) -> usize;
-//
-//     fn braid_thickness(&self) -> usize;
-//     //
-//     // fn prediction_mode(&self) -> PredictionMode;
-//     // fn averaging_mode(&self) -> AveragingMode;
-//     // fn norm_mode(&self) -> NormMode;
-//     // fn weighing_mode(&self) -> WeighingMode;
-//     // fn dispersion_mode(&self) -> DispersionMode;
-//     // fn split_fraction_regularization(&self) -> f64;
-//     // fn big_mem(&self) -> bool;
-//     //
-//     // fn blank_array(&self,dims:(usize,usize)) -> Array2<Self::Value>;
-//
-//     // fn backups(&self) -> Option<String>;
-//     // fn backup_vec(&self) -> Option<Vec<String>>;
-//
-//     // fn epochs(&self) -> usize;
-//     // fn epoch_duration(&self) -> usize;
-//     // fn boost_mode(&self) -> BoostMode;
-//
-// }
-
 #[derive(Clone,Debug)]
 pub struct ParameterBook<V>
 where
     V: SampleValue
 {
-    input_count_array_file: String,
-    input_array: Option<Array2<V>>,
-    output_count_array_file: String,
-    output_array: Option<Array2<V>>,
-    input_feature_header_file: Option<String>,
-    input_feature_names: Vec<String>,
-    output_feature_header_file: Option<String>,
-    output_feature_names: Vec<String>,
-    sample_header_file: Option<String>,
-    sample_names: Vec<String>,
-    report_address: String,
+    pub input_count_array_file: String,
+    pub input_array: Option<Array2<V>>,
+    pub output_count_array_file: String,
+    pub output_array: Option<Array2<V>>,
+    pub input_feature_header_file: Option<String>,
+    pub input_feature_names: Vec<String>,
+    pub output_feature_header_file: Option<String>,
+    pub output_feature_names: Vec<String>,
+    pub sample_header_file: Option<String>,
+    pub sample_names: Vec<String>,
+    pub report_address: String,
 
-    processor_limit: usize,
-    tree_limit: usize,
-    leaf_size_cutoff: usize,
-    depth_cutoff: usize,
-    dropout: DropMode,
+    pub processor_limit: usize,
+    pub tree_limit: usize,
+    pub leaf_size_cutoff: usize,
+    pub depth_cutoff: usize,
+    pub dropout: DropMode,
 
-    feature_subsample: usize,
-    sample_subsample: usize,
-    input_features: usize,
-    output_features: usize,
+    pub feature_subsample: usize,
+    pub sample_subsample: usize,
+    pub input_feature_subsample: usize,
+    pub output_feature_subsample: usize,
 
-    braid_thickness: usize,
+    pub braid_thickness: usize,
 
-    prediction_mode: PredictionMode,
-    averaging_mode: AveragingMode,
-    norm_mode: NormMode,
-    weighing_mode: WeighingMode,
-    dispersion_mode: DispersionMode,
-    split_fraction_regularization: f64,
-    big_mem: bool,
+    pub prediction_mode: PredictionMode,
+    pub averaging_mode: AveragingMode,
+    pub norm_mode: NormMode,
+    pub weighing_mode: WeighingMode,
+    pub dispersion_mode: DispersionMode,
+    pub split_fraction_regularization: f64,
+    pub big_mem: bool,
 
-    backups: Option<String>,
-    backup_vec: Option<Vec<String>>,
+    pub backups: Option<String>,
+    pub backup_vec: Option<Vec<String>>,
 
 }
-//
-// impl<V> Parameters for ParameterBook<V>
-// where
-//     V: SampleValue
-// {
-//     type Value = V;
-//
-//     fn blank() -> ParameterBook<V> {
-//         ParameterBook
-//         {
-//             input_count_array_file: "".to_string(),
-//             input_array: None,
-//             output_count_array_file: "".to_string(),
-//             output_array: None,
-//             input_feature_header_file: None,
-//             input_feature_names: vec![],
-//             output_feature_header_file: None,
-//             output_feature_names: vec![],
-//             sample_header_file: None,
-//             sample_names: vec![],
-//             report_address: "./".to_string(),
-//
-//             processor_limit: 1,
-//             tree_limit: 1,
-//             leaf_size_cutoff: usize::MAX,
-//             depth_cutoff: 1,
-//             dropout: DropMode::No,
-//
-//             feature_subsample: 1,
-//             sample_subsample: 1,
-//             input_features: 1,
-//             output_features: 1,
-//
-//             braid_thickness: 3,
-//
-//             prediction_mode: PredictionMode::Truncate,
-//             averaging_mode: AveragingMode::Arithmetic,
-//             norm_mode: NormMode::L2,
-//             weighing_mode: WeighingMode::Flat,
-//             dispersion_mode: DispersionMode::SSME,
-//             split_fraction_regularization: 0.5,
-//             big_mem: false,
-//
-//             backups: None,
-//             backup_vec: None,
-//
-//
-//         }
-//     }
-//
-//
-//     fn input_count_array_file(&self) -> &String {
-//         &self.input_count_array_file
-//     }
-//
-//     fn input_array(&self) -> &Option<Array2<Self::Value>> {
-//         &self.input_array
-//     }
-//     fn output_count_array_file(&self) -> &String {
-//         &self.output_count_array_file
-//     }
-//     fn output_array(&self) -> &Option<Array2<Self::Value>> {
-//         &self.output_array
-//     }
-//
-//     fn input_feature_header_file(&self) -> &Option<String> {
-//         &self.input_feature_header_file
-//     }
-//
-//     fn input_feature_names(&self) -> &Vec<String> {
-//         &self.input_feature_names
-//     }
-//     fn output_feature_header_file(&self) -> &Option<String> {
-//         &self.output_feature_header_file
-//     }
-//     fn output_feature_names(&self) -> &Vec<String> {
-//         &self.output_feature_names
-//     }
-//     fn sample_header_file(&self) -> &Option<String> {
-//         &self.sample_header_file
-//     }
-//     fn sample_names(&self) -> &Vec<String> {
-//         &self.sample_names
-//     }
-//     fn report_address(&self) -> &String {
-//         &self.report_address
-//     }
-//     fn processor_limit(&self) -> usize {
-//         self.processor_limit
-//     }
-//     fn tree_limit(&self) -> usize {
-//         self.tree_limit
-//     }
-//     fn leaf_size_cutoff(&self) -> usize {
-//         self.leaf_size_cutoff
-//     }
-//     fn depth_cutoff(&self) -> usize {
-//         self.depth_cutoff
-//     }
-//     fn dropout(&self) -> &DropMode {
-//         &self.dropout
-//     }
-//
-//     fn feature_subsample(&self) -> usize {
-//         self.feature_subsample
-//     }
-//     fn sample_subsample(&self) -> usize {
-//         self.sample_subsample
-//     }
-//     fn input_feature_subsample(&self) -> usize {
-//         self.input_features
-//     }
-//     fn output_feature_subsample(&self) -> usize {
-//         self.output_features
-//     }
-//
-//     fn braid_thickness(&self) -> usize {
-//         self.braid_thickness
-//     }
-//
-//
-//     // fn prediction_mode(&self) -> PredictionMode {
-//     // }
-//     // fn averaging_mode(&self) -> AveragingMode;
-//     // fn norm_mode(&self) -> NormMode;
-//     // fn weighing_mode(&self) -> WeighingMode;
-//     // fn dispersion_mode(&self) -> DispersionMode;
-//     // fn split_fraction_regularization(&self) -> f64;
-//     // fn big_mem(&self) -> bool;
-//
-//     // fn blank_array(&self,dims:(usize,usize)) -> Array2<Self::Value>;
-//
-//
-// }
-//
+
 
 pub fn read<T: Iterator<Item = String>>(args: &mut T) -> ParameterBook<f64> {
 
@@ -429,10 +243,10 @@ pub fn read<T: Iterator<Item = String>>(args: &mut T) -> ParameterBook<f64> {
                 arg_struct.depth_cutoff = args.next().expect("Error processing depth").parse::<usize>().expect("Error parsing depth");
             }
             "-if" | "-ifs" | "-in_features" | "-in_feature_subsample" | "-input_feature_subsample" => {
-                arg_struct.input_features = args.next().expect("Error processing in feature arg").parse::<usize>().expect("Error in feature  arg");
+                arg_struct.input_feature_subsample = args.next().expect("Error processing in feature arg").parse::<usize>().expect("Error in feature  arg");
             },
             "-of" | "-ofs" | "-out_features" | "-out_feature_subsample" | "-output_feature_subsample" => {
-                arg_struct.output_features = args.next().expect("Error processing out feature arg").parse::<usize>().expect("Error out feature arg");
+                arg_struct.output_feature_subsample = args.next().expect("Error processing out feature arg").parse::<usize>().expect("Error out feature arg");
             },
             "-fs" | "-feature_sub" | "-feature_subsample" | "-feature_subsamples" => {
                 arg_struct.feature_subsample = args.next().expect("Error processing feature subsample arg").parse::<usize>().expect("Error feature subsample arg");
@@ -511,8 +325,8 @@ impl<V: SampleValue> ParameterBook<V> {
 
             feature_subsample: 1,
             sample_subsample: 1,
-            input_features: 1,
-            output_features: 1,
+            input_feature_subsample: 1,
+            output_feature_subsample: 1,
 
             braid_thickness: 3,
 

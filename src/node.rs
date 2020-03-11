@@ -13,14 +13,14 @@ use rand::Rng;
 
 use rayon::prelude::*;
 
-use crate::Feature;
+use crate::{InputFeature,OutputFeature};
 use crate::Sample;
 use crate::SampleKey;
 use crate::FeatureKey;
 use crate::SampleValue;
 use crate::Prototype;
-use crate::io::Parameters;
 // use crate::io::DispersionMode;
+use crate::io::ParameterBook;
 use crate::rank_vector::FeatureVector;
 use crate::nipals::calculate_projection;
 use crate::valsort;
@@ -31,19 +31,19 @@ use rayon::prelude::*;
 trait Node : Clone
 {
     type Value: SampleValue;
-    type Sample: SampleKey;
-    type Feature: FeatureKey;
-    type Prototype: Prototype<Value=Self::Value,Sample=Self::Sample,Feature=Self::Feature,Parameters=Self::Parameters>;
-    type Parameters: Parameters;
+    type Sample: Sample;
+    type InputFeature: InputFeature;
+    type OutputFeature: OutputFeature;
+    type Prototype: Prototype<Value=Self::Value,Sample=Self::Sample,InputFeature=Self::InputFeature,OutputFeature=Self::OutputFeature>;
 
 
-    fn prototype(&self) -> Arc<Self::Prototype>;
+    fn prototype(&self) -> &Arc<Self::Prototype>;
     fn samples(&self) -> &[Self::Sample];
-    fn input_features(&self) -> &[Self::Feature];
-    fn output_features(&self) -> &[Self::Feature];
+    fn input_features(&self) -> &[Self::InputFeature];
+    fn output_features(&self) -> &[Self::OutputFeature];
     fn stencil(&self) -> &[usize];
 
-    fn parameters(&self) -> &Self::Parameters {
+    fn parameters(&self) -> &ParameterBook<Self::Value> {
         self.prototype().parameters()
     }
 }
@@ -53,9 +53,9 @@ trait ComputeNode: Node
     //
     fn split(&mut self) {
 
-        let input_feature_subsample = fast_subsample(self.input_features(), self.parameters().input_feature_subsample());
-        let output_feature_subsample = fast_subsample(self.output_features(), self.parameters().output_feature_subsample());
-        let sample_subsample = fast_subsample(self.samples(), self.parameters().sample_subsample());
+        let input_feature_subsample = fast_subsample(self.input_features(), self.parameters().input_feature_subsample);
+        let output_feature_subsample = fast_subsample(self.output_features(), self.parameters().output_feature_subsample);
+        let sample_subsample = fast_subsample(self.samples(), self.parameters().sample_subsample);
 
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
         let (reduction,reduced_intermediate) = calculate_projection(output_intermediate);
@@ -70,11 +70,11 @@ trait ComputeNode: Node
 
     }
 
-    fn draw_order_iterators<'a>(&'a self,input_features:&'a[Self::Feature]) -> Vec<CachedSorter<'a>> {
+    fn draw_order_iterators<'a>(&'a self,input_features:&'a[Self::InputFeature]) -> Vec<CachedSorter<'a>> {
         let mut draw_orders = Vec::with_capacity(input_features.len());
         for feature in input_features {
             let sorted = feature.sorted_indices();
-            let draw_order = CachedSorter::from(sorted, self.stencil());
+            let draw_order = CachedSorter::from(sorted.into_slice().unwrap(), self.stencil());
             draw_orders.push(draw_order);
         }
         draw_orders
