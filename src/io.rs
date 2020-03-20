@@ -93,6 +93,7 @@ pub struct ParameterBook<V>
 where
     V: SampleValue
 {
+    pub auto: bool,
     pub input_count_array_file: String,
     pub input_array: Option<Array2<V>>,
     pub output_count_array_file: String,
@@ -132,7 +133,7 @@ where
 }
 
 
-pub fn read<T: Iterator<Item = String>>(args: &mut T) -> ParameterBook<f64> {
+pub fn read<V:SampleValue,T: Iterator<Item = String>>(args: &mut T) -> ParameterBook<V> {
 
     let mut arg_struct = ParameterBook::blank();
 
@@ -140,8 +141,13 @@ pub fn read<T: Iterator<Item = String>>(args: &mut T) -> ParameterBook<f64> {
     let mut continuation_flag = false;
     let mut continuation_argument: String = "".to_string();
 
+    let location = args.next();
+
     while let Some((i,arg)) = args.enumerate().next() {
-        if arg.clone().chars().next().unwrap_or('_') == '-' {
+
+        // println!("READING:{:?}", arg);
+
+        if arg.chars().next().unwrap_or('_') == '-' {
             continuation_flag = false;
 
         }
@@ -152,10 +158,10 @@ pub fn read<T: Iterator<Item = String>>(args: &mut T) -> ParameterBook<f64> {
                 }
                 supress_warnings = true;
             },
-            // "-auto" | "-a"=> {
-            //     arg_struct.auto = true;
-            //     arg_struct.auto()
-            // },
+            "-auto" | "-a"=> {
+                // arg_struct.auto = true;
+                // arg_struct.auto()
+            },
             // "-stdin" => {
             //     let single_array = Some(read_standard_in());
             //     arg_struct.input_array = single_array.clone();
@@ -293,8 +299,8 @@ pub fn read<T: Iterator<Item = String>>(args: &mut T) -> ParameterBook<f64> {
         arg_struct.sample_names = (0..rows).map(|i| format!("{:?}",i).to_string()).collect()
     }
 
-    eprintln!("INPUT ARRAY FEATURES:{}", arg_struct.input_array.as_ref().unwrap().len());
-    eprintln!("OUTPUT ARRAY FEATURES:{}", arg_struct.output_array.as_ref().unwrap().len());
+    eprintln!("INPUT ARRAY DIMENSION:{:?}", arg_struct.input_array.as_ref().unwrap().dim());
+    eprintln!("OUTPUT ARRAY DIMENSION:{:?}", arg_struct.output_array.as_ref().unwrap().dim());
     eprintln!("SAMPLE HEADER:{}", arg_struct.sample_names.len());
 
     arg_struct
@@ -305,6 +311,7 @@ impl<V: SampleValue> ParameterBook<V> {
     fn blank() -> ParameterBook<V> {
         ParameterBook
         {
+            auto: false,
             input_count_array_file: "".to_string(),
             input_array: None,
             output_count_array_file: "".to_string(),
@@ -344,109 +351,98 @@ impl<V: SampleValue> ParameterBook<V> {
 
         }
     }
-}
 
-//
-//
-//     fn auto(&mut self) {
-//
-//         let input_counts = self.input_array.as_ref().expect("Please specify counts file(s) before the \"-auto\" argument.");
-//         let output_counts = self.output_array.as_ref().expect("Please specify counts file(s) before the \"-auto\" argument.");
-//
-//         let mut input_features = input_counts.len();
-//         let mut output_features = output_counts.len();
-//         let samples = input_counts.get(0).unwrap_or(&vec![]).len();
-//
-//         let output_feature_subsample = ((output_features as f64 / (output_features as f64).log10()) as usize).min(output_features);
-//
-//         let input_feature_subsample = ((input_features as f64 / (input_features as f64).log10()) as usize).min(input_features);
-//
-//         let feature_subsample = output_features;
-//
-//         let sample_subsample: usize;
-//
-//         if samples < 10 {
-//             eprintln!("Warning, you seem to be using suspiciously few samples, are you sure you specified the right file? If so, trees may not be the right solution to your problem.");
-//             sample_subsample = samples;
-//         }
-//         else if samples < 1000 {
-//             sample_subsample = (samples/3)*2;
-//         }
-//         else if samples < 5000 {
-//             sample_subsample = samples/2;
-//         }
-//         else {
-//             sample_subsample = samples/4;
-//         }
-//
-//         let leaf_size_cutoff = (sample_subsample as f64).sqrt() as usize;
-//
-//         let depth_cutoff = ((samples as f64).log(5.) as usize).max(2);
-//
-//         let trees = 100;
-//
-//         let processors = num_cpus::get();
-//
-//         // let dropout: DropMode;
-//         //
-//         // if input_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) || output_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) {
-//         //     dropout = DropMode::NaNs;
-//         // }
-//         // else if input_counts.iter().flat_map(|x| x.iter().map(|y| if *y == 0. {1.} else {0.})).sum::<f64>() > ((samples * input_features) as f64 / 4.) ||
-//         //         output_counts.iter().flat_map(|x| x.iter().map(|y| if *y == 0. {1.} else {0.})).sum::<f64>() > ((samples * output_features) as f64 / 4.)
-//         // {
-//         //     dropout = DropMode::Zeros;
-//         // }
-//         // else {
-//         //     dropout = DropMode::No;
-//         // }
-//
-//         let dropout = DropMode::No;
-//
-//         let prediction_mode: PredictionMode;
-//
-//         if input_counts.iter().flat_map(|x| x.iter().map(|y| if *y != 0. {1.} else {0.})).sum::<f64>() < ((samples * input_features) as f64 / 4.) {
-//             prediction_mode = PredictionMode::Abort;
-//         }
-//         else if input_counts.iter().flat_map(|x| x.iter().map(|y| if *y != 0. {1.} else {0.})).sum::<f64>() < ((samples * input_features) as f64 / 2.) {
-//             prediction_mode = PredictionMode::Truncate;
-//         }
-//         else {
-//             prediction_mode = PredictionMode::Branch;
-//         }
-//
-//         println!("Automatic parameters:");
-//         // println!("fs:{:?}",feature_subsample);
-//         println!("ss:{:?}",sample_subsample);
-//         println!("if:{:?}",input_features);
-//         println!("of:{:?}",output_features);
-//         println!("p:{:?}",processors);
-//         println!("t:{:?}",trees,);
-//         println!("l:{:?}",leaf_size_cutoff);
-//         println!("d:{:?}",dropout);
-//         println!("pm:{:?}",prediction_mode);
-//
-//         self.auto = true;
-//
-//         self.feature_subsample = feature_subsample;
-//         self.sample_subsample = sample_subsample;
-//         self.input_features = input_feature_subsample;
-//         self.output_features = output_feature_subsample;
-//
-//
-//         self.processor_limit = processors;
-//         self.tree_limit = trees;
-//         self.leaf_size_cutoff = leaf_size_cutoff;
-//         self.depth_cutoff = depth_cutoff;
-//         self.dropout = dropout;
-//
-//         self.prediction_mode = prediction_mode;
-//         self.averaging_mode = AveragingMode::Arithmetic;
-//
-//     }
-//
-//
-// }
+
+
+    fn auto(&mut self) {
+
+        let input_counts = self.input_array.as_ref().expect("Please specify counts file(s) before the \"-auto\" argument.");
+        let output_counts = self.output_array.as_ref().expect("Please specify counts file(s) before the \"-auto\" argument.");
+
+        let mut input_features = input_counts.dim().1;
+        let mut output_features = output_counts.dim().1;
+        let samples = input_counts.dim().0;
+
+        let output_feature_subsample = ((output_features as f64 / (output_features as f64).log10()) as usize).min(output_features);
+
+        let input_feature_subsample = ((input_features as f64 / (input_features as f64).log10()) as usize).min(input_features);
+
+        let feature_subsample = output_features;
+
+        let sample_subsample: usize;
+
+        if samples < 10 {
+            eprintln!("Warning, you seem to be using suspiciously few samples, are you sure you specified the right file? If so, trees may not be the right solution to your problem.");
+            sample_subsample = samples;
+        }
+        else if samples < 1000 {
+            sample_subsample = (samples/3)*2;
+        }
+        else if samples < 5000 {
+            sample_subsample = samples/2;
+        }
+        else {
+            sample_subsample = samples/4;
+        }
+
+        let leaf_size_cutoff = (sample_subsample as f64).sqrt() as usize;
+
+        let depth_cutoff = ((samples as f64).log(5.) as usize).max(2);
+
+        let trees = 100;
+
+        let processors = num_cpus::get();
+
+        // let dropout: DropMode;
+        //
+        // if input_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) || output_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) {
+        //     dropout = DropMode::NaNs;
+        // }
+        // else if input_counts.iter().flat_map(|x| x.iter().map(|y| if *y == 0. {1.} else {0.})).sum::<f64>() > ((samples * input_features) as f64 / 4.) ||
+        //         output_counts.iter().flat_map(|x| x.iter().map(|y| if *y == 0. {1.} else {0.})).sum::<f64>() > ((samples * output_features) as f64 / 4.)
+        // {
+        //     dropout = DropMode::Zeros;
+        // }
+        // else {
+        //     dropout = DropMode::No;
+        // }
+
+        let dropout = DropMode::No;
+
+        let prediction_mode: PredictionMode = PredictionMode::Abort;
+
+        println!("Automatic parameters:");
+        // println!("fs:{:?}",feature_subsample);
+        println!("ss:{:?}",sample_subsample);
+        println!("if:{:?}",input_features);
+        println!("of:{:?}",output_features);
+        println!("p:{:?}",processors);
+        println!("t:{:?}",trees,);
+        println!("l:{:?}",leaf_size_cutoff);
+        println!("d:{:?}",dropout);
+        println!("pm:{:?}",prediction_mode);
+
+        self.auto = true;
+
+        self.feature_subsample = feature_subsample;
+        self.sample_subsample = sample_subsample;
+        self.input_feature_subsample = input_feature_subsample;
+        self.output_feature_subsample = output_feature_subsample;
+
+
+        self.processor_limit = processors;
+        self.tree_limit = trees;
+        self.leaf_size_cutoff = leaf_size_cutoff;
+        self.depth_cutoff = depth_cutoff;
+        self.dropout = dropout;
+
+        self.prediction_mode = prediction_mode;
+        self.averaging_mode = AveragingMode::Arithmetic;
+
+    }
+
+
+}
 //
 // // Various modes that are included in Parameters, serving as control elements for program internals. Each mode can parse strings that represent alternative options for that mode. Enums were chosen because they compile down to extremely small memory footprint.
 //
@@ -602,25 +598,31 @@ impl DropMode {
 
 fn read_matrix<V: SampleValue>(location:&str) -> Array2<V> {
 
-    let count_array_file = File::open(location).expect("Count file error!");
+    let mut count_array_file = File::open(location).expect("Count file error!");
     let mut count_array_lines = io::BufReader::new(&count_array_file).lines();
 
     let (mut rows, mut columns) = (0,0);
+    let mut padding = 0;
     if let Some(Ok(line)) = count_array_lines.next() {
         columns = line.split_whitespace().count();
+        padding += 1;
     }
-    rows = count_array_lines.by_ref().count();
+    rows = count_array_lines.by_ref().count()+padding;
 
     // let mut array = self.blank_array((rows,columns));
     let mut array = Array2::zeros((rows,columns));
-    count_array_lines = io::BufReader::new(&count_array_file).lines();
+
+    std::mem::drop(count_array_lines);
+
+    count_array_file.seek(io::SeekFrom::Start(0));
+    let mut count_array_lines = io::BufReader::new(&count_array_file).lines();
+
 
     for (i,line_res) in count_array_lines.by_ref().enumerate() {
         let line = line_res.expect("Readline error");
         for (j,string_value) in line.split_whitespace().enumerate() {
             if j == 0 && i%200==0{print!("{}:",i);}
             if i%200==0 && j%200 == 0 {print!("{:?}\r", string_value.parse::<V>().unwrap_or(V::zero()) );}
-
             match string_value.parse::<V>() {
                 Ok(numeric_value) => {
                     array[[i,j]] = numeric_value;
@@ -633,6 +635,7 @@ fn read_matrix<V: SampleValue>(location:&str) -> Array2<V> {
         }
     };
 
+    // println!("Returning array: {:?}",array);
     array
 }
 

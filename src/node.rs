@@ -13,148 +13,321 @@ use rand::Rng;
 
 use rayon::prelude::*;
 
-use crate::{InputFeature,OutputFeature};
+use crate::{Feature,InputFeature,OutputFeature,Forest};
 use crate::Sample;
 use crate::SampleKey;
 use crate::FeatureKey;
 use crate::SampleValue;
 use crate::Prototype;
+use crate::SampleFilter;
+use crate::subsample;
 // use crate::io::DispersionMode;
 use crate::io::ParameterBook;
-use crate::rank_vector::FeatureVector;
+use crate::rank_vector::{SegmentedVector,FeatureVector};
 use crate::nipals::calculate_projection;
 use crate::valsort;
 use crate::rank_vector::MedianArray;
+use std::iter::Map;
+use crate::argmax;
+use crate::ArgMinMax;
+use nipals::Projector;
 
 use rayon::prelude::*;
 
-trait Node : Clone
+use crate::{PrototypeUF,InputFeatureUF,OutputFeatureUF,SampleUF,ForestUF,SerializedFilter};
+
+pub trait Node<'a> : Clone
 {
-    type Value: SampleValue;
-    type Sample: Sample;
-    type InputFeature: InputFeature;
-    type OutputFeature: OutputFeature;
+    type Forest: Forest<Prototype=Self::Prototype,Value=Self::Value,Sample=Self::Sample,InputFeature=Self::InputFeature,OutputFeature=Self::OutputFeature>;
     type Prototype: Prototype<Value=Self::Value,Sample=Self::Sample,InputFeature=Self::InputFeature,OutputFeature=Self::OutputFeature>;
+    type Value: SampleValue;
+    type Sample: Sample<Prototype=Self::Prototype,Value=Self::Value>;
+    type InputFeature: InputFeature<Prototype=Self::Prototype,Sample=Self::Sample,Value=Self::Value>;
+    type OutputFeature: OutputFeature<Prototype=Self::Prototype,Value=Self::Value,Sample=Self::Sample>;
 
+    fn from_forest(forest:&'a Self::Forest) -> Self;
+    fn filter(&self) -> &SampleFilter<Self::InputFeature>;
+    fn forest(&self) -> &Self::Forest;
+    fn samples(&self) -> & [Self::Sample];
+    fn samples_mut(&mut self) -> & mut [Self::Sample];
+    fn prototype(&self) -> &Self::Prototype;
+    fn children(&self) -> & Vec<Self>;
+    fn mut_children(&mut self) -> &mut Vec<Self>;
+    fn parameters(&self) -> &'a ParameterBook<Self::Value>;
 
-    fn prototype(&self) -> &Arc<Self::Prototype>;
-    fn samples(&self) -> &[Self::Sample];
-    fn input_features(&self) -> &[Self::InputFeature];
-    fn output_features(&self) -> &[Self::OutputFeature];
-    fn stencil(&self) -> &[usize];
-
-    fn parameters(&self) -> &ParameterBook<Self::Value> {
-        self.prototype().parameters()
+    fn to_sidxn(&self) -> SampleIndexNode {
+        let samples = self.samples().iter().map(|s| s.index()).collect();
+        let children = self.children().iter().map(|c| c.to_sidxn()).collect();
+        SampleIndexNode{
+            samples,
+            filter: self.filter().serialize().clone(),
+            children
+        }
     }
+
 }
 
-trait ComputeNode: Node
+pub trait ComputeNode<'a>: Node<'a>
 {
-    //
-    fn split(&mut self) {
 
-        let input_feature_subsample = fast_subsample(self.input_features(), self.parameters().input_feature_subsample);
-        let output_feature_subsample = fast_subsample(self.output_features(), self.parameters().output_feature_subsample);
-        let sample_subsample = fast_subsample(self.samples(), self.parameters().sample_subsample);
+    fn derive(&self,SampleFilter<Self::InputFeature>) -> Self;
 
+    fn split(&mut self,depth:usize) -> &mut Self {
+
+        if depth > self.parameters().depth_cutoff || self.samples().len() > self.parameters().leaf_size_cutoff {
+            return self
+        }
+
+        // println!("SPLITTING");
+
+        let input_feature_subsample = self.forest().subsample_input_features();
+        let output_feature_subsample = self.forest().subsample_output_features();
+        let (in_bag,out_bag) = self.sample_bags();
+        let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
+        // let sample_subsample: Vec<&Self::Sample> = subsample(self.samples(), self.forest().parameters().sample_subsample);
+        // let sample_subsample: Vec<&Self::Sample> = subsample(&samples, self.forest().parameters().sample_subsample);
+        // let input_feature_subsample: Vec<Self::InputFeature> = self.forest().input_features().to_vec();
+        // let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().output_featues().to_vec();
+        // let sample_subsample: Vec<Self::Sample> = self.samples().to_vec();
+
+        // println!("SUBSAMPLED");
+
+        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
-        let (reduction,reduced_intermediate) = calculate_projection(output_intermediate);
-        let valsorted = valsort(reduced_intermediate.slice(s![..]).into_slice().unwrap());
+        // let out_of_bag_intermediate = self.prototype().double_select_output(&out_of_bag,&output_feature_subsample);
+        // let (reduction,reduced_intermediate) = calculate_projection(output_intermediate);
+        let (reduced_intermediate,reduction,means) = Projector::from(output_intermediate).calculate_projection();
+        let valsorted: Vec<(usize,f64)> = valsort(reduced_intermediate.to_vec().into_iter());
+
+        // println!("REDUCED");
+        // println!("{:?}",reduction);
+        // println!("{:?}", reduced_intermediate);
+        // println!("{:?}", valsorted);
+
         let mut mv = MedianArray::link(&valsorted);
+        // println!("LINKED");
+        // println!("{:?}", mv);
 
-        let draw_order_iterators = self.draw_order_iterators(&input_feature_subsample);
-        for doi in draw_order_iterators.into_iter() {
+        let sample_indices = sample_subsample.iter().map(|s| s.index()).collect();
+        let mut cached_sorter = CachedSorter::from(sample_indices);
 
+        // println!("CACHED");
+        // println!("{:?}",cached_sorter);
+        let mut dispersions = vec![0.;cached_sorter.draw_order.len()];
+
+        let sfr = self.prototype().parameters().split_fraction_regularization;
+        let (best_feature,(best_sample,dispersion)) = input_feature_subsample.into_iter()
+        .map(|f| {
+            // println!("FEATURE:{:?}",f.index());
+            let si = f.sorted_indices();
+            // println!("{:?}", si);
+            cached_sorter.sort(si.iter());
+            // println!("SORTED:{:?}",cached_sorter);
+            // println!("SORTED+VAL:{:?}", cached_sorter.draw_order.iter().map(|i| InputFeature::slice(&f)[*i]).collect::<Vec<Self::Value>>());
+            let ss_len = sample_subsample.len();
+            let mut mv_f = mv.clone();
+            let mut mv_r = mv.clone();
+            for (i,draw) in cached_sorter.draw_order.iter().enumerate() {
+                // println!("POSITION:{:?}",i);
+                mv_f.pop(*draw);
+                let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
+                {dispersions[i] = mv_f.dispersion() * regularization;}
+                // println!("{:?}",dispersions[i]);
+            }
+            for (i,draw) in cached_sorter.draw_order.iter().rev().enumerate() {
+                // println!("POSITION:{:?}",ss_len - i -1);
+                mv_r.pop(*draw);
+                let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
+                {dispersions[ss_len - i -1] += mv_r.dispersion() * regularization;}
+                // println!("{:?}",dispersions[ss_len - i -1]);
+
+            }
+            // println!("FINISHED DISPERSIONS:{:?}",dispersions);
+            if let Some((best_split,&dispersion)) = dispersions.iter().argmin_v()
+            {
+                let best_sample_local_index = cached_sorter.draw_order[best_split];
+                let best_sample = sample_subsample[best_sample_local_index].clone();
+                Some((f,(best_sample,dispersion)))
+            }
+            else {None}
+
+// TODO CHECK TO MAKE SURE YOU GET THE CORRECT ORDER DISPERSIONS
+
+                // F64 Minimum because Rust gonna Rust
+        })
+        .flat_map(|x| x)
+        .min_by(|a,b| (a.1).1.partial_cmp(&(b.1).1).unwrap()).unwrap();
+
+        // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
+
+        let (left_fitler,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
+
+        let (left_child,right_child) = (self.derive(left_fitler),self.derive(right_filter));
+        self.mut_children().push(left_child);
+        self.mut_children().push(right_child);
+
+        for child in self.mut_children() {
+            child.split(depth+1);
         }
 
-
+        self
     }
 
-    fn draw_order_iterators<'a>(&'a self,input_features:&'a[Self::InputFeature]) -> Vec<CachedSorter<'a>> {
-        let mut draw_orders = Vec::with_capacity(input_features.len());
-        for feature in input_features {
-            let sorted = feature.sorted_indices();
-            let draw_order = CachedSorter::from(sorted.into_slice().unwrap(), self.stencil());
-            draw_orders.push(draw_order);
-        }
-        draw_orders
+    fn sample_bags(&self) -> (Vec<Self::Sample>,Vec<Self::Sample>) {
+        use rand::seq::SliceRandom;
+        use rand::prelude::thread_rng;
+
+        let mut in_bag: Vec<Self::Sample> = self.samples().to_vec();
+        let bag_size = (in_bag.len() as f64 * 0.66) as usize;
+        &mut in_bag.partial_shuffle(&mut thread_rng(),bag_size);
+        let out_bag = in_bag.split_off(bag_size);
+        (in_bag,out_bag)
     }
 
 }
 
-trait StoredNode: Node
+#[derive(Clone,Debug,Serialize)]
+pub struct SampleIndexNode {
+    samples: Vec<usize>,
+    filter: SerializedFilter,
+    children: Vec<SampleIndexNode>,
+}
+
+impl SampleIndexNode
 {
-    fn dump(&mut self,filename:&str);
-}
-//
-// struct FastNode {
-//     prototype:Arc<Prototype>,
-//     output:
-// }
-
-fn fast_subsample<T:Clone>(collection:&[T],draws:usize) -> Vec<T> {
-    use rand::distributions::{Distribution, Uniform};
-    let mut new_collection = Vec::with_capacity(draws);
-    let between = Uniform::from(0..collection.len());
-    let mut rng = rand::thread_rng();
-    for _ in 0..draws {
-        new_collection.push(collection[between.sample(&mut rng)].clone());
+    pub fn dump(&mut self,filename:&str) -> Option<()> {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        let mut handle = OpenOptions::new().write(true).truncate(true).create(true).open(filename).ok()?;
+        handle.write(serde_json::to_string(self).ok()?.as_bytes());
+        Some(())
     }
-    new_collection
-
 }
 
-
-fn stencil(indices:&[usize],stencil_size:usize,draws:usize) -> Vec<usize> {
-    let mut stencil = vec![0;stencil_size];
-    for i in indices {
-        stencil[*i] += 1;
-    }
-    stencil
+#[derive(Clone,Debug)]
+pub struct FastNode<'a,V:SampleValue> {
+    forest: &'a ForestUF<V>,
+    parameters: &'a ParameterBook<V>,
+    samples: Vec<SampleUF<V>>,
+    filter: SampleFilter<InputFeatureUF<V>>,
+    children: Vec<FastNode<'a,V>>,
 }
 
-fn cached_sort_subsample(sorted_indices:&[usize],stencil:&[usize],draws:usize) -> Vec<usize> {
-    let mut output = vec![0;draws];
-    let mut current = 0;
-    for i in sorted_indices {
-        for j in 0..stencil[*i] {
-            output[current] = *i;
-            current += 1;
+impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {
+    type Forest = ForestUF<V>;
+    type Prototype = PrototypeUF<V>;
+    type Value = V;
+    type Sample = SampleUF<V>;
+    type InputFeature = InputFeatureUF<V>;
+    type OutputFeature = OutputFeatureUF<V>;
+
+    fn from_forest(forest:&'a ForestUF<V>) -> FastNode<V> {
+        FastNode {
+            samples: forest.samples().to_vec(),
+            forest: forest,
+            parameters: forest.parameters(),
+            filter: SampleFilter::<InputFeatureUF<V>>::blank(),
+            children: vec![],
         }
     }
-    output
+
+    fn filter(&self) -> &SampleFilter<Self::InputFeature> {
+        &self.filter
+    }
+
+    fn samples(&self) -> & [SampleUF<V>] {
+        &self.samples
+    }
+
+    fn samples_mut(&mut self) -> &mut [SampleUF<V>] {
+        &mut self.samples
+    }
+
+    fn children(&self) -> &Vec<Self> {
+        &self.children
+    }
+
+    fn mut_children(&mut self) -> &mut Vec<Self> {
+        &mut self.children
+    }
+
+    fn forest(&self) -> &ForestUF<V> {
+        &self.forest
+    }
+
+    fn parameters(&self) -> &'a ParameterBook<V> {
+        &self.parameters
+    }
+
+    fn prototype(&self) -> &PrototypeUF<V> {
+        self.forest.prototype()
+    }
 }
 
-struct CachedSorter<'a> {
-    sorted_indices: &'a [usize],
-    stencil: &'a [usize],
-    current:usize,
-    stencil_cache: usize
+impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
+    fn derive(&self,filter:SampleFilter<InputFeatureUF<V>>) -> FastNode<'a,V> {
+        let new_samples = filter.filter_samples(&self.samples);
+        FastNode {
+            samples: new_samples,
+            forest: self.forest,
+            parameters: self.parameters,
+            filter: filter,
+            children: vec![],
+        }
+    }
 }
 
-impl<'a> CachedSorter<'a> {
-    fn from(sorted_indices:&'a [usize],stencil:&'a [usize]) -> Self {
+#[derive(Clone,Debug)]
+struct CachedSorter {
+    subsample: Vec<usize>,
+    stencil: HashMap<usize,(usize,usize)>,
+    draw_order: Vec<usize>,
+}
+
+impl CachedSorter {
+    fn from(subsample:Vec<usize>) -> Self {
+
+        // First we count how many times each key occurrs in the subsample;
+
+        let mut stencil_map: HashMap<usize,(usize,usize)> = HashMap::with_capacity(subsample.len());
+        for i in subsample.iter() {
+            stencil_map.entry(*i).or_insert((0,0)).1 += 1;
+        }
         CachedSorter {
-            sorted_indices: sorted_indices,
-            stencil: stencil,
-            current: 0,
-            stencil_cache: stencil[sorted_indices[0]],
-        }
-    }
-}
-
-impl<'a> Iterator for CachedSorter<'a> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item>{
-        while self.stencil_cache < 1 {
-            self.current +=1;
-            if self.current >= self.sorted_indices.len() {return None};
-            self.stencil_cache = self.stencil[self.sorted_indices[self.current]];
-        }
-        let index = self.sorted_indices[self.current];
-        self.stencil_cache -= 1;
-        return Some(index)
+            draw_order: vec![subsample.len();subsample.len()],
+            subsample:subsample,
+            stencil: stencil_map,
+         }
     }
 
+    fn sort<'a,I:ExactSizeIterator<Item=&'a usize>>(&mut self,sorted_indices:I) {
+
+        // For a given sort order, we must now determine the minimum rank of each present index.
+        // We can do this by iterating through the sorted indices and keeping track of the quantity
+        // seen so far.
+
+        let mut current_subsample_rank = 0;
+        for key in sorted_indices {
+            if let Some((minimum_rank,quantity)) = self.stencil.get_mut(&(key)) {
+                *minimum_rank = current_subsample_rank;
+                current_subsample_rank += *quantity;
+            }
+        }
+
+        // For each sample key present in the subsample we now know the minimum rank and quantity.
+        // We proceed through the subsample and insert the subsample index at a the minimum rank of
+        // that subsample
+
+
+        for (ss_index,key) in self.subsample.iter().enumerate() {
+            if let Some((minimum_rank,quantity)) = self.stencil.get_mut(key) {
+                self.draw_order[*minimum_rank] = ss_index;
+                *minimum_rank += 1;
+            }
+        }
+    }
+
+    fn draw_order(&self) -> &[usize] {
+        &self.draw_order
+    }
 }
