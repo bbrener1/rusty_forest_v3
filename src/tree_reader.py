@@ -646,6 +646,7 @@ class Node:
             "absolute_gain_cache",
             "local_gain_cache",
             "additive_cache",
+            "additive_mean_cache",
             "median_cache",
             "dispersion_cache",
             "mean_cache",

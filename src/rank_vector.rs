@@ -680,6 +680,7 @@ where
 
 }
 
+#[derive(Clone,Debug,Serialize,Deserialize)]
 pub struct MeanArena<V,A>
 where
     V:SampleValue,
@@ -754,7 +755,201 @@ where
 
 }
 
+impl<V,A> MeanArena<V,A>
+where
+    V:SampleValue,
+    A:NodeArena<usize,V>,
+{
+    fn mean(&self) -> V {
+        self.segments[0].sum / V::from(self.segments.len()).expect("Cast failure")
+    }
 
+    fn variance(&self) -> V {
+        (self.segments[0].squared_sum / V::from(self.segments.len()).expect("Cast failure")) - self.mean().pow(2)
+    }
+}
+
+impl<V,A> FeatureVector for MeanArena<V,A>
+where
+    V:SampleValue,
+    A:NodeArena<usize,V>,
+{
+    fn central_tendency(&self) -> V {
+        self.mean()
+    }
+    fn dispersion(&self) -> Self::V {
+        unimplemented!();
+        self.variance()
+    }
+}
+
+#[derive(Clone,Debug,Serialize,Deserialize)]
+pub struct MADArena<V,A>
+where
+    V:SampleValue,
+    A:NodeArena<usize,V>,
+{
+    segments: [IndexSegment<V>;5],
+    arena: A,
+}
+
+
+
+impl<V,A> LinkedVector for MADArena<V,A>
+where
+    V:SampleValue,
+    A:NodeArena<usize,V>,
+{
+    type K = usize;
+    type V = V;
+    type Arena = A;
+
+
+    fn arena(&self) -> &Self::Arena {
+        &self.arena
+    }
+    fn arena_mut(&mut self) -> &mut Self::Arena{
+        &mut self.arena
+    }
+
+}
+
+impl<A,V> SegmentedVector for MADArena<V,A>
+where
+    V: SampleValue,
+    A: NodeArena<usize,V>,
+{
+
+    type Segment = IndexSegment<Self::V>;
+
+    fn len(&self) -> usize {
+        self.segments().iter().map(|s| s.len()).sum()
+    }
+
+    fn segments(&self) -> &[IndexSegment<Self::V>] {
+        &self.segments
+    }
+    fn segments_mut(&mut self) -> &mut [IndexSegment<Self::V>] {
+        &mut self.segments
+    }
+
+    fn endcaps(&self,segment:usize) -> (Node<usize,V>,Node<usize,V>) {
+        let offset = (self.arena().len() - 10) + (segment*2);
+        let i1 = offset;
+        let i2 = offset + 1;
+        let e1 = Node {
+            key: i1,
+            value: V::zero(),
+            squared_value: V::zero(),
+            previous: i1,
+            next: i2,
+            segment: segment,
+        };
+        let e2 = Node {
+            key: i2,
+            value: V::zero(),
+            squared_value: V::zero(),
+            previous: i1,
+            next: i2,
+            segment:segment,
+        };
+        (e1,e2)
+    }
+
+    fn balance(&mut self) {
+        self.size_median();
+        // println!("Balancing");
+        while {self.segments()[0].len()} < {self.segments()[2].len()} {
+            // println!("Shifting median left");
+            self.shift_median_right();
+        }
+        while {self.segments()[0].len()} > {self.segments()[2].len()} {
+            // println!("Shifting median right");
+            self.shift_median_left();
+        }
+    }
+
+}
+
+impl<'a,V,A> MADArena<V,A>
+where
+    V: SampleValue,
+    A: NodeArena<usize,V>,
+{
+    pub fn link(sorted_input:&[(usize,V)]) -> Self {
+        let mut mv = Self::with_capacity(sorted_input.len());
+        SegmentedVector::link(&mut mv,sorted_input);
+        mv.balance();
+        mv
+    }
+
+    pub fn link_iterator<T:Iterator<Item=&'a (usize,V)>>(sorted_input: T,length:usize) -> Self {
+        let mut mv = Self::with_capacity(length);
+        SegmentedVector::link_iterator(&mut mv,sorted_input.cloned(),length);
+        mv.balance();
+        mv
+    }
+
+    fn with_capacity(capacity:usize) -> Self {
+
+        let mut mv = MADArena{
+            segments: [IndexSegment::blank();5],
+            arena: NodeArena::<usize,V>::with_capacity(capacity+10),
+        };
+        mv.initialize();
+        mv
+    }
+
+
+    fn size_median(&mut self) {
+        // println!("Initializing median");
+
+        if self.segments[2].len() < 1 {
+            // println!("Own length less than 1");
+            // println!("{:?}",self);
+            if self.segments[1].len() > 0 {
+                // println!("Shifting boundary left");
+                self.shift_boundary_left(1, 2)
+            }
+            else if self.segments[3].len() > 0 {
+                // println!("Shifting boundary left");
+                self.shift_boundary_right(2,3)
+            }
+            // else {println!("No shift"); panic!()}
+        }
+        // println!("Initialized to at least 1");
+        while self.segments[2].len > 2 {
+            self.shift_boundary_left(2,3)
+        }
+
+        // println!("{:?}",self.segments());
+    }
+
+
+    fn shift_median_left(&mut self) {
+        match self.segments[2].len() {
+            1 => {self.shift_boundary_left(1,2)},
+            2 => {self.shift_boundary_left(2,3)},
+            _ => {panic!(format!("Median de-synchronized:{:?}",self))}
+        }
+    }
+
+    fn shift_median_right(&mut self) {
+        match self.segments[1].len() {
+            1 => {self.shift_boundary_right(2,3)},
+            2 => {self.shift_boundary_right(1,2)},
+            _ => {panic!(format!("Median de-synchronized:{:?}",self))}
+        }
+    }
+
+    fn median(&self) -> V {
+        if self.segments[2].len() > 0 {
+            self.segments[2].sum / (V::from(self.segments[2].len()).expect("Cast failure"))
+        }
+        else {V::zero()}
+    }
+
+}
 //
 //
 // impl<FV:FeatureVector,DO:DrawOrder<FV::K>> Iterator for OrderedDispersion<FV,DO> {

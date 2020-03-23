@@ -43,6 +43,7 @@ use crate::node::{Node,ComputeNode,FastNode};
 use std::env;
 use std::marker::PhantomData;
 use nipals::Projector;
+use rayon::prelude::*;
 
 use ndarray::iter::Iter;
 
@@ -53,14 +54,20 @@ fn main() {
     let mut parameters: ParameterBook<f64> = crate::io::read(&mut arg_iter);
 
     let mut forest = ForestUF::from_parameters(parameters);
+    let report_address = forest.parameters().report_address.clone();
+    let tree_limit = forest.parameters().tree_limit;
 
-    for i in 0..forest.parameters().tree_limit {
-        let mut root = FastNode::from_forest(&forest);
-        // println!("FAST NODE:{:?}", fast_node);
+    (0..tree_limit)
+        .into_par_iter()
+        .map(|i| {
+            let mut root = FastNode::from_forest(&forest);
+            println!("Computing tree {:?}",i);
 
-        let mut sidxn = root.split(0).to_sidxn();
-        sidxn.dump(format!("{}.{}.compact",forest.parameters().report_address,i).as_str());
-    }
+            if let Some(mut sidxn) = root.double_reduce(0).map(|fast_n| fast_n.to_sidxn()) {
+                sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
+            }
+        })
+        .collect::<Vec<()>>();
 
 
     // println!("CHILDREN:{:?}",children);
@@ -81,7 +88,8 @@ pub trait FeatureKey: Hash + Eq + Clone + Debug {}
 impl FeatureKey for &str {}
 impl FeatureKey for usize {}
 
-pub trait SampleValue: Num + Zero + FromStr + Clone + Copy + Into<f64> + LinalgScalar + Debug + PartialOrd + SubAssign + AddAssign + Signed + FromPrimitive + Sum + Bounded + ToPrimitive + NumCast + Pow<u8,Output=Self> {}
+// pub trait SampleValue: Num + Zero + FromStr + Clone + Copy + Into<f64> + LinalgScalar + Debug + PartialOrd + Send + Sync + SubAssign + AddAssign + Signed + FromPrimitive + Sum + Bounded + ToPrimitive + NumCast + Pow<u8,Output=Self> {}
+pub trait SampleValue: Num + Zero + FromStr + Clone + Copy + Into<f64> + LinalgScalar + Debug + PartialOrd + Send + Sync + SubAssign + AddAssign + Signed + Sum + Bounded + NumCast + Pow<u8,Output=Self> {}
 
 //
 // SAMPLE/FEATURE TRAITS
@@ -94,7 +102,7 @@ impl SampleValue for i32 {}
 
 pub trait DrawOrder<K:SampleKey>: Iterator<Item=K> {}
 
-pub trait Sample: Clone + Debug
+pub trait Sample: Clone + Debug + Send + Sync
 {
     type Prototype: Prototype<Value=Self::Value>;
     type Key: SampleKey;
@@ -123,7 +131,7 @@ pub trait Sample: Clone + Debug
 
 }
 
-pub trait Feature : Clone + Debug
+pub trait Feature : Clone + Debug + Send + Sync
 {
     type Prototype: Prototype<Value=Self::Value>;
     type Sample: Sample<Value=Self::Value>;
@@ -188,9 +196,7 @@ impl<IF:InputFeature> SampleFilter<IF> {
         }
     }
 
-    fn from_feature_sample(feature:&IF,sample:&IF::Sample) -> (SampleFilter<IF>,SampleFilter<IF>) {
-        let reduction = Reduction::from_feature_sample(feature, sample);
-        let split = reduction.transform_sample(sample);
+    fn from_reduction(reduction:Reduction<IF>,split:IF::Value) -> (SampleFilter<IF>,SampleFilter<IF>) {
         let left_filter = SampleFilter {
             reduction: reduction.clone(),
             split:split.clone(),
@@ -202,6 +208,12 @@ impl<IF:InputFeature> SampleFilter<IF> {
             orientation:true,
         };
         (left_filter,right_filter)
+    }
+
+    fn from_feature_sample(feature:&IF,sample:&IF::Sample) -> (SampleFilter<IF>,SampleFilter<IF>) {
+        let reduction = Reduction::from_feature_sample(feature, sample);
+        let split = reduction.transform_sample(sample);
+        Self::from_reduction(reduction, split)
     }
 
     fn filter_samples(&self,samples:&[IF::Sample]) -> Vec<IF::Sample> {
@@ -217,6 +229,28 @@ impl<IF:InputFeature> SampleFilter<IF> {
         else {
             for sample in samples {
                 let mut compound_score = self.reduction.transform_sample(sample);
+                if compound_score <= self.split {
+                    new.push(sample.clone())
+                }
+            }
+        }
+        new
+    }
+
+
+    fn filter_samples_scaled(&self,samples:&[IF::Sample]) -> Vec<IF::Sample> {
+        let mut new = Vec::with_capacity(samples.len());
+        if self.orientation {
+            for sample in samples {
+                let compound_score = self.reduction.transform_sample_scaled(sample);
+                if compound_score > self.split {
+                    new.push(sample.clone())
+                }
+            }
+        }
+        else {
+            for sample in samples {
+                let mut compound_score = self.reduction.transform_sample_scaled(sample);
                 if compound_score <= self.split {
                     new.push(sample.clone())
                 }
@@ -249,7 +283,7 @@ pub struct SerializedReduction {
     means: Vec<f64>,
 }
 
-impl<F:InputFeature> Reduction<F> {
+impl<F:Feature> Reduction<F> {
 
     fn blank() -> Reduction<F> {
         Reduction {
@@ -259,6 +293,7 @@ impl<F:InputFeature> Reduction<F> {
         }
     }
 
+
     fn from_feature_sample(feature:&F,sample:&F::Sample) -> Self {
         Reduction {
             features:vec![feature.clone()],
@@ -266,6 +301,7 @@ impl<F:InputFeature> Reduction<F> {
             means:vec![F::Value::zero()],
         }
     }
+
 
     fn from(features:Vec<F>,scores:Vec<F::Value>,means:Vec<F::Value>) -> Self {
         Reduction {
@@ -283,6 +319,17 @@ impl<F:InputFeature> Reduction<F> {
         compound_score
     }
 
+    fn transform_sample_scaled(&self,sample:&F::Sample) -> F::Value {
+        let mut compound_score = F::Value::zero();
+        let mut feature_sum = F::Value::zero();
+        for i in 0..self.features.len() {
+            let v = self.features[i].sample(sample);
+            feature_sum += v;
+            compound_score += (v - self.means[i]) * self.scores[i];
+        }
+        compound_score / feature_sum
+    }
+
     fn serialize(&self) -> SerializedReduction {
         SerializedReduction {
             features: self.features.iter().map(|f| f.index()).collect(),
@@ -297,7 +344,7 @@ impl<F:InputFeature> Reduction<F> {
 // PROTOTYPE TRAIT(S)
 //
 
-pub trait Prototype : Clone + Debug
+pub trait Prototype : Clone + Debug + Send + Sync
 {
     type InputFeature: InputFeature<Prototype=Self,Value=Self::Value,Sample=Self::Sample>;
     type OutputFeature: OutputFeature<Prototype=Self,Value=Self::Value,Sample=Self::Sample>;
@@ -377,7 +424,7 @@ impl<'a,V:SampleValue> Forest for ForestUF<V> {
     }
 }
 
-trait Forest {
+trait Forest: Send + Sync {
     type Value: SampleValue;
     type Sample: Sample<Prototype=Self::Prototype,Value=Self::Value>;
     type InputFeature: InputFeature<Prototype=Self::Prototype,Value=Self::Value,Sample=Self::Sample>;

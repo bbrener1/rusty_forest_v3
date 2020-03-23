@@ -13,7 +13,7 @@ use rand::Rng;
 
 use rayon::prelude::*;
 
-use crate::{Feature,InputFeature,OutputFeature,Forest};
+use crate::{Feature,InputFeature,OutputFeature,Forest,Reduction};
 use crate::Sample;
 use crate::SampleKey;
 use crate::FeatureKey;
@@ -21,6 +21,7 @@ use crate::SampleValue;
 use crate::Prototype;
 use crate::SampleFilter;
 use crate::subsample;
+use rayon::prelude::*;
 // use crate::io::DispersionMode;
 use crate::io::ParameterBook;
 use crate::rank_vector::{SegmentedVector,FeatureVector};
@@ -70,18 +71,18 @@ pub trait Node<'a> : Clone
 pub trait ComputeNode<'a>: Node<'a>
 {
 
-    fn derive(&self,SampleFilter<Self::InputFeature>) -> Self;
+    fn derive(&self,SampleFilter<Self::InputFeature>) -> Option<Self>;
 
-    fn split(&mut self,depth:usize) -> &mut Self {
+    fn split(&mut self,depth:usize) -> Option<&mut Self> {
 
-        if depth > self.parameters().depth_cutoff || self.samples().len() > self.parameters().leaf_size_cutoff {
-            return self
+        if depth > self.parameters().depth_cutoff || self.samples().len() < self.parameters().leaf_size_cutoff {
+            return None
         }
 
         // println!("SPLITTING");
 
-        let input_feature_subsample = self.forest().subsample_input_features();
-        let output_feature_subsample = self.forest().subsample_output_features();
+        let input_feature_subsample: Vec<Self::InputFeature> = self.forest().subsample_input_features();
+        let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().subsample_output_features();
         let (in_bag,out_bag) = self.sample_bags();
         let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
         // let sample_subsample: Vec<&Self::Sample> = subsample(self.samples(), self.forest().parameters().sample_subsample);
@@ -94,10 +95,11 @@ pub trait ComputeNode<'a>: Node<'a>
 
         let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
-        // let out_of_bag_intermediate = self.prototype().double_select_output(&out_of_bag,&output_feature_subsample);
-        // let (reduction,reduced_intermediate) = calculate_projection(output_intermediate);
-        let (reduced_intermediate,reduction,means) = Projector::from(output_intermediate).calculate_projection();
-        let valsorted: Vec<(usize,f64)> = valsort(reduced_intermediate.to_vec().into_iter());
+        let (reduced_output,output_reduction,output_means,output_scales) = Projector::from(output_intermediate).calculate_projection();
+        let (reduced_input,input_reduction,input_means,input_scales) = Projector::from(input_intermediate).calculate_projection();
+        let valsorted: Vec<(usize,f64)> = valsort(reduced_output.to_vec().into_iter());
+
+        // let reduced_output = reduced_output / output_scales;
 
         // println!("REDUCED");
         // println!("{:?}",reduction);
@@ -113,28 +115,32 @@ pub trait ComputeNode<'a>: Node<'a>
 
         // println!("CACHED");
         // println!("{:?}",cached_sorter);
-        let mut dispersions = vec![0.;cached_sorter.draw_order.len()];
 
         let sfr = self.prototype().parameters().split_fraction_regularization;
-        let (best_feature,(best_sample,dispersion)) = input_feature_subsample.into_iter()
+        let (best_feature,(best_sample,dispersion)) = input_feature_subsample
+        // .into_iter()
+        .into_par_iter()
         .map(|f| {
             // println!("FEATURE:{:?}",f.index());
             let si = f.sorted_indices();
             // println!("{:?}", si);
-            cached_sorter.sort(si.iter());
+            let mut local_sorter = cached_sorter.clone();
+            let mut dispersions = vec![0.;cached_sorter.draw_order.len()];
+            // let mut local_sorter = &mut cached_sorter;
+            local_sorter.sort(si.iter());
             // println!("SORTED:{:?}",cached_sorter);
             // println!("SORTED+VAL:{:?}", cached_sorter.draw_order.iter().map(|i| InputFeature::slice(&f)[*i]).collect::<Vec<Self::Value>>());
             let ss_len = sample_subsample.len();
             let mut mv_f = mv.clone();
             let mut mv_r = mv.clone();
-            for (i,draw) in cached_sorter.draw_order.iter().enumerate() {
+            for (i,draw) in local_sorter.draw_order.iter().enumerate() {
                 // println!("POSITION:{:?}",i);
                 mv_f.pop(*draw);
                 let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
                 {dispersions[i] = mv_f.dispersion() * regularization;}
                 // println!("{:?}",dispersions[i]);
             }
-            for (i,draw) in cached_sorter.draw_order.iter().rev().enumerate() {
+            for (i,draw) in local_sorter.draw_order.iter().rev().enumerate() {
                 // println!("POSITION:{:?}",ss_len - i -1);
                 mv_r.pop(*draw);
                 let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
@@ -145,13 +151,11 @@ pub trait ComputeNode<'a>: Node<'a>
             // println!("FINISHED DISPERSIONS:{:?}",dispersions);
             if let Some((best_split,&dispersion)) = dispersions.iter().argmin_v()
             {
-                let best_sample_local_index = cached_sorter.draw_order[best_split];
+                let best_sample_local_index = local_sorter.draw_order[best_split];
                 let best_sample = sample_subsample[best_sample_local_index].clone();
                 Some((f,(best_sample,dispersion)))
             }
             else {None}
-
-// TODO CHECK TO MAKE SURE YOU GET THE CORRECT ORDER DISPERSIONS
 
                 // F64 Minimum because Rust gonna Rust
         })
@@ -162,15 +166,102 @@ pub trait ComputeNode<'a>: Node<'a>
 
         let (left_fitler,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
 
-        let (left_child,right_child) = (self.derive(left_fitler),self.derive(right_filter));
-        self.mut_children().push(left_child);
-        self.mut_children().push(right_child);
+        if let (Some(left_child),Some(right_child)) = (self.derive(left_fitler),self.derive(right_filter)) {
+            self.mut_children().push(left_child);
+            self.mut_children().push(right_child);
 
-        for child in self.mut_children() {
-            child.split(depth+1);
+            for child in self.mut_children() {
+                child.split(depth+1);
+            }
+
+            Some(self)
+        }
+        else { Some(self) }
+
+    }
+
+    fn double_reduce(&mut self,depth:usize) -> Option<&mut Self> {
+        use num_traits::{NumCast,Zero};
+
+        if depth > self.parameters().depth_cutoff || self.samples().len() < self.parameters().leaf_size_cutoff {
+            return None
         }
 
-        self
+        let input_feature_subsample: Vec<Self::InputFeature> = self.forest().subsample_input_features();
+        let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().subsample_output_features();
+        let (in_bag,out_bag) = self.sample_bags();
+        let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
+
+
+        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
+        let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
+        let (reduced_input,input_scores,input_means,input_scales) = Projector::from(input_intermediate).calculate_projection();
+        let (reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_projection();
+        let reduced_input = reduced_input / input_scales;
+        let reduced_output = reduced_output / output_scales;
+
+
+        let input_reduction =
+            Reduction::from(
+                input_feature_subsample,
+                input_scores.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect(),
+                input_means.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect());
+
+        let output_reduction =
+            Reduction::from(
+                output_feature_subsample,
+                output_scores.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect(),
+                output_means.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect());
+
+
+
+        let valsorted_input: Vec<(usize,f64)> = valsort(reduced_input.to_vec().into_iter());
+        let valsorted_output: Vec<(usize,f64)> = valsort(reduced_output.to_vec().into_iter());
+
+        let draw_order: Vec<usize> = valsorted_input.into_iter().map(|(i,_)| i).collect();
+        let mut dispersions = vec![0.;draw_order.len()];
+        let mut mv = MedianArray::link(&valsorted_output);
+
+        let sfr = self.prototype().parameters().split_fraction_regularization;
+
+        let ss_len = sample_subsample.len();
+        let mut mv_f = mv.clone();
+        let mut mv_r = mv.clone();
+
+        for (i,draw) in draw_order.iter().enumerate() {
+            // println!("POSITION:{:?}",i);
+            mv_f.pop(*draw);
+            let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
+            {dispersions[i] = mv_f.dispersion() * regularization;}
+            // println!("{:?}",dispersions[i]);
+        }
+        for (i,draw) in draw_order.iter().rev().enumerate() {
+            // println!("POSITION:{:?}",ss_len - i -1);
+            mv_r.pop(*draw);
+            let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
+            {dispersions[ss_len - i -1] += mv_r.dispersion() * regularization;}
+            // println!("{:?}",dispersions[ss_len - i -1]);
+
+        }
+        //     // println!("FINISHED DISPERSIONS:{:?}",dispersions);
+        let (best_split,&dispersion) = dispersions.iter().argmin_v()?;
+        let local_index = draw_order[best_split];
+        let split = NumCast::from(reduced_input[local_index]).expect("Cast failure");
+
+        let (left_fitler,right_filter) = SampleFilter::from_reduction(input_reduction, split);
+        //
+        if let (Some(left_child),Some(right_child)) = (self.derive(left_fitler),self.derive(right_filter)) {
+            self.mut_children().push(left_child);
+            self.mut_children().push(right_child);
+
+            for child in self.mut_children() {
+                child.double_reduce(depth+1);
+            }
+
+            Some(self)
+        }
+        else { Some(self) }
+
     }
 
     fn sample_bags(&self) -> (Vec<Self::Sample>,Vec<Self::Sample>) {
@@ -265,15 +356,18 @@ impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {
 }
 
 impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
-    fn derive(&self,filter:SampleFilter<InputFeatureUF<V>>) -> FastNode<'a,V> {
+    fn derive(&self,filter:SampleFilter<InputFeatureUF<V>>) -> Option<FastNode<'a,V>> {
         let new_samples = filter.filter_samples(&self.samples);
-        FastNode {
-            samples: new_samples,
-            forest: self.forest,
-            parameters: self.parameters,
-            filter: filter,
-            children: vec![],
+        if new_samples.len() > 0 {
+            Some(FastNode {
+                samples: new_samples,
+                forest: self.forest,
+                parameters: self.parameters,
+                filter: filter,
+                children: vec![],
+            })
         }
+        else { None }
     }
 }
 

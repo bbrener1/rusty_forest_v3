@@ -38,6 +38,7 @@ fn center(mut input:Array2<f64>) -> Array2<f64> {
 
 pub struct Projector {
     means: Array1<f64>,
+    scale_factors: Array1<f64>,
     converted:Array2<f64>,
     scores:Array1<f64>,
     loadings:Array1<f64>,
@@ -50,12 +51,14 @@ impl Projector {
         let smallnum = 10e-4 ;
         let mut converted:Array2<f64> = input.map(|v| T::into(*v));
         let means = converted.mean_axis(Axis(0));
+        let scale_factors = converted.sum_axis(Axis(1));
         converted = center(converted);
         let mut loadings = Array::ones(converted.dim().0);
         let mut scores = Array::ones(converted.dim().1);
         let mut score_norm = f64::MAX;
         Projector {
             means,
+            scale_factors,
             converted,
             scores,
             loadings,
@@ -64,7 +67,7 @@ impl Projector {
         }
     }
 
-    pub fn calculate_projection(&mut self) -> (Array1<f64>,Array1<f64>,Array1<f64>) {
+    pub fn calculate_projection(&mut self) -> (Array1<f64>,Array1<f64>,Array1<f64>,Array1<f64>) {
         loop {
             self.scores = self.converted.t().dot(&self.loadings);
             let new_norm = (self.scores.iter().map(|x| x.powi(2)).sum::<f64>()).sqrt();
@@ -72,7 +75,7 @@ impl Projector {
             self.scores.mapv_inplace(|x| x/new_norm);
             if delta < self.smallnum {
                 self.converted -= &outer(&self.loadings,&self.scores);
-                return (self.loadings.clone(),self.scores.clone(),self.means.clone())
+                return (self.loadings.clone(),self.scores.clone(),self.means.clone(),self.scale_factors.clone())
             }
             else {self.score_norm = new_norm};
             self.loadings = self.converted.dot(&self.scores);
