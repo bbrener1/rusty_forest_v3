@@ -296,7 +296,7 @@ impl<F:Feature> Reduction<F> {
         Reduction {
             features:vec![feature.clone()],
             scores:vec![F::Value::one()],
-            means:vec![feature.sample(sample)],
+            means:vec![F::Value::zero()],
         }
     }
 
