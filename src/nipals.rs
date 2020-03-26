@@ -1,6 +1,4 @@
 use std::f64;
-use std::convert::Into;
-use num_traits::Num;
 use ndarray::prelude::*;
 
 use crate::SampleValue;
@@ -53,9 +51,9 @@ impl Projector {
         let means = converted.mean_axis(Axis(0));
         let scale_factors = converted.sum_axis(Axis(1));
         converted = center(converted);
-        let mut loadings = Array::ones(converted.dim().0);
-        let mut scores = Array::ones(converted.dim().1);
-        let mut score_norm = f64::MAX;
+        let loadings = Array::ones(converted.dim().0);
+        let scores = Array::ones(converted.dim().1);
+        let score_norm = f64::MAX;
         Projector {
             means,
             scale_factors,

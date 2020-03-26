@@ -122,6 +122,16 @@ class Node:
             nodes.append(child)
         return nodes
 
+    def encoding(self):
+        if hasattr(self,'encoding_cache'):
+            return self.encoding_cache
+        encoding = np.zeros(len(self.forest.samples),dtype=bool)
+        for sample in self.samples:
+            encoding[sample] = True
+        if self.cache:
+            self.encoding_cache = encoding
+        return encoding
+
     def node_counts(self):
 
         # Obtains the count matrix of samples belonging to this node
@@ -293,16 +303,19 @@ class Node:
             parent_value = 0.
         return own_value - parent_value
 
-    def leaves(self):
+    def leaves(self,depth=None):
 
         # Obtains all leaves belonging to this node
+        if depth is None:
+            depth = self.level + 1
 
         leaves = []
-        for child in self.children:
-            leaves.extend(child.leaves())
-        if len(leaves) < 1:
+        if len(self.children) < 1 or self.level >= depth:
+            leaves.append(self)
+        else:
             for child in self.children:
-                leaves.append(child)
+                leaves.extend(child.leaves(depth=depth))
+
         return leaves
 
     def stems(self):
@@ -650,6 +663,7 @@ class Node:
             "median_cache",
             "dispersion_cache",
             "mean_cache",
+            "encoding_cache",
         ]
 
         for cache in possible_caches:
@@ -733,8 +747,8 @@ class Tree:
             nodes.append(self.root)
         return nodes
 
-    def leaves(self):
-        leaves = self.root.leaves()
+    def leaves(self,depth=None):
+        leaves = self.root.leaves(depth=depth)
         if len(leaves) < 1:
             leaves.append(self.root)
         return leaves
@@ -964,10 +978,10 @@ class Forest:
             nodes = [n for n in nodes if n.level <= depth]
         return nodes
 
-    def leaves(self):
+    def leaves(self,depth=None):
         leaves = []
         for tree in self.trees:
-            leaves.extend(tree.leaves())
+            leaves.extend(tree.leaves(depth=depth))
         return leaves
 
     def level(self,target):
@@ -990,8 +1004,7 @@ class Forest:
     def node_sample_encoding(self,nodes):
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=bool)
         for i,node in enumerate(nodes):
-            for sample in node.samples:
-                encoding[sample,i] = True
+            encoding[:,i] = node.encoding()
         return encoding
 
     def node_representation(self,nodes=None,mode='gain',metric=None,pca=0):
@@ -1556,15 +1569,16 @@ class Forest:
         return self.sample_labels
 
 
-    def cluster_samples_encoding(self,override=False,pca=False,depth_limit=None,*args,**kwargs):
+    def cluster_samples_encoding(self,override=False,pca=False,depth_limit=None,depth=None,*args,**kwargs):
+
+        # Todo: remove this hack
+        if depth is not None:
+            depth_limit = depth
 
         if hasattr(self,'sample_labels') and override:
             self.reset_sample_clusters()
 
-        leaves = self.leaves()
-
-        if depth_limit is not None:
-            leaves = [n for n in self.nodes() if n.level == depth_limit]
+        leaves = self.leaves(depth=depth_limit)
 
         encoding = self.node_sample_encoding(leaves)
 
@@ -3333,8 +3347,13 @@ class NodeCluster:
         return self.forest.weighted_node_vector_prediction(self.nodes)
 
     def changed_absolute_root(self):
-        root = [self.forest.prototype.root,]
-        ordered_features,ordered_difference = self.forest.node_change_absolute(root,self.nodes)
+        roots = [self.forest.nodes(root=True,depth=0)]
+        ordered_features,ordered_difference = self.forest.node_change_absolute(roots,self.nodes)
+        return ordered_features,ordered_difference
+
+    def changed_log_root(self):
+        roots = [self.forest.nodes(root=True,depth=0)]
+        ordered_features,ordered_difference = self.forest.node_change_log_fold(roots,self.nodes)
         return ordered_features,ordered_difference
 
     def changed_absolute(self):
@@ -3353,6 +3372,11 @@ class NodeCluster:
         sort = np.argsort(mean_additive)
         return self.forest.output_features[sort],mean_additive[sort]
 
+
+    def log_sister(self,plot=True):
+        sisters = [n.sister() for n in self.nodes]
+        ordered_features,ordered_difference = self.forest.node_change_log_fold(sisters,self.nodes)
+        return ordered_features,ordered_difference
 
     def logistic_sister(self,n=50,plot=True):
         sisters = [n.sister() for n in self.nodes]
@@ -3472,12 +3496,15 @@ class NodeCluster:
 
         attributes = {}
 
-        changed_features,change_fold = self.changed_log_fold()
+        parent_changed_features,change_fold = self.changed_log_fold()
+        changed_vs_all,fold_vs_all = self.changed_log_root()
 
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
-        attributes['upregulatedHtml'] = generate_feature_value_html(reversed(changed_features[-n:]),reversed(change_fold[-n:]),cmap='bwr')
-        attributes['downregulatedHtml'] = generate_feature_value_html(reversed(changed_features[:n]),reversed(change_fold[:n]),cmap='bwr')
+        attributes['parentUpregulatedHtml'] = generate_feature_value_html(reversed(changed_features[-n:]),reversed(change_fold[-n:]),cmap='bwr')
+        attributes['parentDownregulatedHtml'] = generate_feature_value_html(reversed(changed_features[:n]),reversed(change_fold[:n]),cmap='bwr')
+        attributes['absoluteUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_all[-n:]),reversed(fold_vs_all[-n:]),cmap='bwr')
+        attributes['absoluteDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_all[:n]),reversed(fold_vs_all[:n]),cmap='bwr')
         attributes['children'] = ", ".join([c.name() for c in self.child_clusters()])
         attributes['parent'] = self.parent_cluster().name()
         attributes['siblings'] = ", ".join([s.name() for s in self.sibling_clusters()])
@@ -3580,106 +3607,6 @@ class NodeCluster:
         return html
 
 
-    def braid_scores(self):
-
-        from scipy.stats import pearsonr
-        from scipy.stats.mstats import gmean
-
-        braids = self.parent_braids()
-
-        fd = self.forest.truth_dictionary.feature_dictionary
-
-        braid_matrix_dimension = [len(self.forest.samples),len(braids)]
-
-        braid_matrix = np.zeros((braid_matrix_dimension[0],braid_matrix_dimension[1]))
-
-        for i,braid in enumerate(braids):
-
-            braid_matrix[:,i] = braid.braid_scores()
-            if pearsonr(braid_matrix[:,i],braid_matrix[:,0])[0] < 0:
-                braid_matrix[:,i] *= -1
-
-        braided_scores = np.mean(braid_matrix)
-
-        return braided_scores
-
-
-    def braid_features(self):
-
-        features = {}
-
-        for braid in self.parent_braids():
-            feature = braid.features[0]
-            if feature not in features:
-                features[feature] = 0
-            features[feature] += 1
-
-        return features
-
-    def top_braid_features(self):
-
-        features = {}
-
-        for braid in self.braids():
-            feature = braid.features[0]
-            if feature not in features:
-                features[feature] = 0
-            features[feature] += 1
-
-        braid_scores = self.braid_scores()
-
-        for feature in features.keys():
-            feature_index = self.forest.truth_dictionary.feature_dictionary[feature]
-            feature_values = self.forest.output[:,feature_index]
-            # features[feature] *= np.sign(scipy.stats.spearmanr(feature_values,braid_scores)[0])
-
-        return features
-
-    def braid_vectors(self,coordinates=None):
-
-        braid_scores = self.braid_scores()
-        braid_features = self.braid_features()
-
-        sorted_features = sorted(list(braid_features.items()),key=lambda f: f[1][0])
-
-        positive_sample_mask = braid_scores > 0
-        negative_sample_mask = braid_scores < 0
-
-        if coordinates is None:
-            coordinates = self.forest.tsne(no_plot=True)
-
-        positive_vector = np.dot(np.power(braid_scores[positive_sample_mask],2),coordinates[positive_sample_mask]) / np.sum(np.power(braid_scores[positive_sample_mask],2))
-        negative_vector = np.dot(np.power(braid_scores[negative_sample_mask],2),coordinates[negative_sample_mask]) / np.sum(np.power(braid_scores[negative_sample_mask],2))
-
-        positive_features = [f for f in sorted_features if f[1][1] > 0][-5:]
-        negative_features = [f for f in sorted_features if f[1][1] < 0][-5:]
-
-        return ((positive_vector,positive_features),(negative_vector,negative_features))
-
-    def plot_braid_vectors(self,ax=None,coordinates=None,scatter=True,show=True):
-
-        if ax is None:
-            figure = plt.figure(figsize=(10,10))
-            ax = figure.add_axes([0,0,1,1])
-
-        if coordinates is None:
-            coordinates = self.forest.tsne(no_plot=True)
-
-        (positive_vector,positive_features),(negative_vector,negative_features) = self.braid_vectors()
-
-        cc = self.coordinates(coordinates=coordinates)
-
-        if scatter:
-            braid_color = self.braid_scores()
-            ax.scatter(coordinates[:,0],coordinates[:,1],c=braid_color,s=2,cmap='bwr')
-        # plt.scatter(cc[0],cc[1],s=200)
-        fraction = .3
-        ax.arrow(cc[0],cc[1],(positive_vector[0]-cc[0]) * fraction ,(positive_vector[1]-cc[1]) * fraction ,width=1,color='red')
-        ax.arrow(cc[0],cc[1],(negative_vector[0]-cc[0]) * fraction ,(negative_vector[1]-cc[1]) * fraction ,width=1,color='blue')
-        if show:
-            plt.show()
-        return ax
-
 
     def sample_cluster_frequency(self,plot=True):
         sample_cluster_labels = self.forest.sample_labels
@@ -3708,197 +3635,6 @@ class NodeCluster:
         plt.colorbar()
         plt.show()
 
-
-
-    # def dependence_scores(self):
-    #
-    #     total_nodes = self.forest.nodes()
-    #
-    #     cluster_nodes = self.nodes
-    #
-    #     cluster_children = [c for n in cluster_nodes for c in n.nodes()]
-    #     child_indices = set([n.index for n in cluster_children])
-    #     cluster_indices = set([n.index for n in cluster_nodes])
-    #     exclude_set = child_indices.union(cluster_indices)
-    #
-    #     external_nodes = [n for n in total_nodes if n.index not in child_indices]
-    #     external_indices = set([n.index for n in external_nodes])
-    #
-    #     child_frequency = np.zeros(len(self.forest.split_clusters))
-    #     external_frequency = np.zeros(len(self.forest.split_clusters))
-    #
-    #     for ci,cluster in enumerate(self.forest.split_clusters):
-    #         for node in cluster.nodes:
-    #             ni = node.index
-    #             if ni in child_indices:
-    #                 child_frequency[ci] += 1
-    #             if ni in external_indices:
-    #                 external_frequency[ci] += 1
-    #
-    #     # print(child_frequency)
-    #     # print(external_frequency)
-    #
-    #     return (np.array(child_frequency) + 1) / (np.array(external_frequency) + 1)
-
-    def prerequisites(self):
-        prerequisite_dictionary = {}
-        for node in self.nodes:
-            for prerequisite,split,sign in node.prerequisites:
-                if prerequisite not in prerequisite_dictionary:
-                    prerequisite_dictionary[prerequisite] = []
-                prerequisite_dictionary[prerequisite].append((split,sign))
-        return prerequisite_dictionary
-
-    def prerequisites_by_level(self):
-        levels = []
-        max_depth = max([node.level for node in self.nodes])
-        for level in range(max_depth):
-            levels.append([])
-            for node in self.nodes:
-                try:
-                    levels[-1].append(node.prerequisites[level])
-                except:
-                    pass
-        return levels
-
-
-    def prerequisite_frequency(self,n=50,plot=True):
-        prerequisites = list(self.prerequisites().items())
-        prerequisites.sort(key=lambda x: len(x[1]))
-        prerequisite_counts = [len(x[1]) for x in prerequisites]
-        prerequisite_labels = [x[0] for x in prerequisites]
-
-        if plot:
-            plt.figure(figsize=(10,2))
-            plt.title("Prerequisites By Frequency")
-            plt.scatter(np.arange(n),prerequisite_counts[-n:])
-            plt.xlim(0,n)
-            plt.xlabel("Gene Symbol")
-            plt.ylabel("Frequency")
-            plt.xticks(np.arange(n),prerequisite_labels[-n:],rotation='vertical')
-            plt.show()
-
-        return prerequisite_labels,prerequisite_counts
-
-    # def mean_feature_predictions(self):
-    #     return self.forest.weighted_node_prediction(self.nodes)
-
-    def plot_changed(self,n=50,plot=True):
-        parents = [n.parent for n in self.nodes if n.parent is not None]
-
-        # ordered_features,ordered_difference = self.forest.node_change_log_fold(parents,self.nodes)
-        # ordered_features,ordered_difference = self.forest.node_change_absolute(parents,self.nodes)
-        ordered_features,ordered_difference = self.forest.node_change_logistic(parents,self.nodes)
-
-        if plot:
-            plt.figure(figsize=(10,2))
-            plt.title("Upregulated Genes")
-            plt.scatter(np.arange(n),ordered_difference[-n:])
-            plt.xlim(0,n)
-            plt.xlabel("Gene Symbol")
-            plt.ylabel("Change")
-            plt.xticks(np.arange(n),ordered_features[-n:],rotation='vertical')
-            plt.show()
-
-            plt.figure(figsize=(10,2))
-            plt.title("Downregulated Genes")
-            plt.scatter(np.arange(n),ordered_difference[:n])
-            plt.xlim(0,n)
-            plt.xlabel("Gene Symbol")
-            plt.ylabel("Change")
-            plt.xticks(np.arange(n),ordered_features[:n],rotation='vertical')
-            plt.show()
-
-        return ordered_features,ordered_difference
-
-    def score_panel(self,ax):
-        coordinates = self.forest.coordinates(no_plot=True)
-        scores = self.sample_scores()
-        ax.scatter(coordinates[:,0],coordinates[:,1],c=scores)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        return ax
-
-
-    def feature_panel(self,ax,features,**kwargs):
-        panel_array = self.feature_means(features)
-        ax.imshow(panel_array,aspect='auto',**kwargs)
-        plt.yticks(np.arange(len(features)),features,rotation='horizontal')
-        return ax
-
-    def additive_panel(self,ax,features,**kwargs):
-        panel_array = self.feature_additives(features)
-        ax.imshow(panel_array,aspect='auto',**kwargs,cmap='bwr',)
-        # plt.yticks(np.arange(len(features)),features,rotation='horizontal',horizontalalignment='left')
-        return ax
-
-
-    def custom_panel(self,ax,custom,labels=None,**kwargs):
-
-        panel_array = np.zeros((1,custom.shape[1]))
-
-        for i,cf in enumerate(custom.T):
-            cells = self.sample_scores()
-            feature_mean = (np.sum(cells * cf)) / np.sum(cells)
-            panel_array[0,i] = feature_mean
-
-        ax.imshow(panel_array,aspect='auto',**kwargs)
-        if labels is not None:
-            plt.xticks(np.arange(len(panel_array)),labels,rotation='vertical')
-        return ax
-
-
-    def up_down_panel(self,ax,n=3,mask_fraction=.05):
-
-        text_rectangle(ax,f"Cluster {self.id}",[.04,.88,.52,.08],no_warp=True,linewidth=None)
-        # ax.set_title(f"Cluster {self.id}")
-
-        # ordered_features,ordered_difference = self.logistic_sister()
-        # ordered_features,ordered_difference = self.changed_log_fold()
-        ordered_features,ordered_difference = self.changed_absolute()
-
-        # braid_feature_set = set(self.braid_features())
-        # braid_mask = np.array([f in braid_feature_set for f in ordered_features])
-        # ordered_features = ordered_features[braid_mask]
-        # ordered_difference = ordered_difference[braid_mask]
-
-        ordered_features = ordered_features[::-1]
-        ordered_difference = ordered_difference[::-1]
-        ordered_difference = [np.around(x,decimals=3) for x in ordered_difference]
-
-        table = ax.table(cellText=np.array([[f[:6] for f in ordered_features[:n]] + [f[:6] for f in ordered_features[-n:]],list(ordered_difference[:n]) + list(ordered_difference[-n:])]).T,cellLoc="center",colLabels=["Symbol","Fold"],bbox=[0,0,.6
-        ,.86],transform=ax.transAxes,edges="open")
-        table.PAD=.0001
-        table.set_fontsize(100)
-        table.auto_set_font_size()
-        for i in range(n*2):
-            table[i+1,0].visible_edges = "R"
-        # table[0,0].visible_edges = "B"
-        # table[0,1].visible_edges = "B"
-        table[0,0].set_text_props(weight='extra bold')
-        table[0,1].set_text_props(weight='extra bold')
-        table[n,0].visible_edges = "B"
-        table[n,1].visible_edges = "BL"
-
-        for i in range(n*2):
-            if float(table[i+1,1].get_text().get_text()) < 0:
-                table[i+1,1].set_text_props(color='r')
-            if float(table[i+1,1].get_text().get_text()) > 0:
-                table[i+1,1].set_text_props(color='g')
-
-        scatter_insert = ax.inset_axes([.6,.7,.4,.3])
-        coordinates = self.forest.coordinates(no_plot=True)
-        scores = self.sample_scores()
-        sub_mask = np.random.random(coordinates.shape[0]) < mask_fraction
-        scatter_insert.scatter(coordinates[sub_mask][:,0],coordinates[sub_mask][:,1],c=scores[sub_mask])
-        scatter_insert.set_xticks([])
-        scatter_insert.set_yticks([])
-
-        text_rectangle(ax,f"Mean",[.62,.6,.33,.06],no_warp=True,linewidth=None)
-        text_rectangle(ax,f"Samples",[.62,.5,.33,.06],no_warp=True,linewidth=None)
-        text_rectangle(ax,str(np.around(self.mean_population(),decimals=1)),[.62,.3,.33,.06],no_warp=True,linewidth=0)
-
-        return ax
 
     def cluster_children(self,nodes=None,mode='gain',metric='cosine',pca=False,distance='cosine',**kwargs):
 

@@ -8,20 +8,14 @@ use std::usize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::stdin;
 use std::cmp::{PartialOrd,Ordering,Eq};
 use std::fmt::Debug;
-use std::sync::Arc;
-use rayon::prelude::*;
 
 use num_cpus;
 
 use ndarray::Array2;
 
-use crate::FeatureKey;
-use crate::SampleKey;
 use crate::SampleValue;
-use num_traits::Zero;
 
 //::/ Author: Boris Brenerman
 //::/ Created: 2017 Academic Year, Johns Hopkins University, Department of Biology, Taylor Lab
@@ -141,7 +135,7 @@ pub fn read<V:SampleValue,T: Iterator<Item = String>>(args: &mut T) -> Parameter
     let mut continuation_flag = false;
     let mut continuation_argument: String = "".to_string();
 
-    let location = args.next();
+    let _location = args.next();
 
     while let Some((i,arg)) = args.enumerate().next() {
 
@@ -217,7 +211,7 @@ pub fn read<V:SampleValue,T: Iterator<Item = String>>(args: &mut T) -> Parameter
                 rayon::ThreadPoolBuilder::new().num_threads(arg_struct.processor_limit).build_global().unwrap();
                 std::env::set_var("OMP_NUM_THREADS",format!("{}",arg_struct.processor_limit));
             },
-            "-o" | "-output" => {
+            "-o" | "-output_location" => {
                 arg_struct.report_address = args.next().expect("Error processing output destination")
             },
             "-ifh" | "-ih" | "-input_feature_header" => {
@@ -359,8 +353,8 @@ impl<V: SampleValue> ParameterBook<V> {
         let input_counts = self.input_array.as_ref().expect("Please specify counts file(s) before the \"-auto\" argument.");
         let output_counts = self.output_array.as_ref().expect("Please specify counts file(s) before the \"-auto\" argument.");
 
-        let mut input_features = input_counts.dim().1;
-        let mut output_features = output_counts.dim().1;
+        let input_features = input_counts.dim().1;
+        let output_features = output_counts.dim().1;
         let samples = input_counts.dim().0;
 
         let output_feature_subsample = ((output_features as f64 / (output_features as f64).log10()) as usize).min(output_features);
@@ -614,7 +608,7 @@ fn read_matrix<V: SampleValue>(location:&str) -> Array2<V> {
 
     std::mem::drop(count_array_lines);
 
-    count_array_file.seek(io::SeekFrom::Start(0));
+    count_array_file.seek(io::SeekFrom::Start(0)).expect("Count file error, seeking");
     let mut count_array_lines = io::BufReader::new(&count_array_file).lines();
 
 
@@ -627,7 +621,7 @@ fn read_matrix<V: SampleValue>(location:&str) -> Array2<V> {
                 Ok(numeric_value) => {
                     array[[i,j]] = numeric_value;
                 },
-                Err(msg) => {
+                Err(_) => {
                         println!("Couldn't parse a cell in the text file");
                         println!("Cell content: {:?}", string_value);
                 }
@@ -764,8 +758,8 @@ fn tsv_format<T:Debug>(input:&Vec<Vec<T>>) -> String {
 }
 
 fn median(input: &Vec<f64>) -> (usize,f64) {
-    let mut index = 0;
-    let mut value = 0.;
+    let index;
+    let value;
 
     let mut sorted_input = input.clone();
     sorted_input.sort_unstable_by(|a,b| a.partial_cmp(&b).unwrap_or(Ordering::Greater));

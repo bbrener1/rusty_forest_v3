@@ -1,11 +1,11 @@
 use std::fmt;
 use num_traits::{Pow};
 use std::ops::{Index,IndexMut};
-use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::clone::Clone;
 use std::iter::{Take,Skip};
-use crate::{SampleKey,SampleValue,DrawOrder};
+use crate::{SampleKey,SampleValue};
+use std::cmp::Ordering;
 
 
 #[derive(Clone,Copy,Debug,Serialize,Deserialize)]
@@ -39,12 +39,6 @@ where
         }
     }
 
-}
-
-pub trait FeatureVector: SegmentedVector
-{
-    fn central_tendency(&self) -> Self::V;
-    fn dispersion(&self) -> Self::V;
 }
 
 
@@ -106,6 +100,13 @@ pub trait LinkedVector: Sized
     }
 
 
+}
+
+pub trait NodeArena<K:SampleKey,V:SampleValue>: Index<K,Output=Node<K,V>> + IndexMut<K,Output=Node<K,V>> + Debug + Clone {
+    const ARRAY_LIMIT:usize = 1024;
+
+    fn with_capacity(capacity:usize) -> Self;
+    fn len(&self) -> usize;
 }
 
 pub trait SegmentedVector: LinkedVector
@@ -199,7 +200,6 @@ pub trait SegmentedVector: LinkedVector
 
 
     fn link(&mut self, sorted_input:&[(Self::K,Self::V)]) -> &mut Self {
-        let input_len = sorted_input.len();
         let mut previous_key = self.segments()[0].left();
         for ((key,value),(next_key,_)) in sorted_input.iter().zip(sorted_input.iter().skip(1)) {
             let node = Node {
@@ -238,8 +238,7 @@ pub trait SegmentedVector: LinkedVector
     }
 
 
-    fn link_iterator<T:Iterator<Item=(Self::K,Self::V)>>(&mut self, sorted_input:T,length:usize) -> &mut Self {
-        let input_len = length;
+    fn link_iterator<T:Iterator<Item=(Self::K,Self::V)>>(&mut self, sorted_input:T) -> &mut Self {
         let mut previous_key = self.segments()[0].left();
         for (key,value) in sorted_input {
             let node = Node {
@@ -316,7 +315,7 @@ where
 }
 
 
-trait Segment<K:SampleKey,V:SampleValue>
+pub trait Segment<K:SampleKey,V:SampleValue>
 {
 
     fn left(&self) -> K;
@@ -345,6 +344,12 @@ trait Segment<K:SampleKey,V:SampleValue>
         *self.len_mut() += 1;
         // println!("Done {:?}",(self.sum(),self.len()));
     }
+}
+
+pub trait FeatureVector: SegmentedVector
+{
+    fn central_tendency(&self) -> Self::V;
+    fn dispersion(&self) -> Self::V;
 }
 
 #[derive(Clone,Copy,Debug,Serialize,Deserialize)]
@@ -412,14 +417,6 @@ impl<V:SampleValue> IndexSegment<V> {
 
 }
 
-
-pub trait NodeArena<K:SampleKey,V:SampleValue>: Index<K,Output=Node<K,V>> + IndexMut<K,Output=Node<K,V>> + Debug + Clone {
-    const ARRAY_LIMIT:usize = 1024;
-
-    fn with_capacity(capacity:usize) -> Self;
-    fn len(&self) -> usize;
-}
-
 impl<V> NodeArena<usize,V> for Vec<Node<usize,V>>
 where
     V: SampleValue,
@@ -471,22 +468,8 @@ where
 
 impl<V:SampleValue> Debug for NodeArray<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let end = self.0.iter().enumerate().find(|(i,n)| n.previous == 0 && n.next == 0).map(|(i,n)| i).unwrap_or(0);
+        let end = self.0.iter().enumerate().find(|(_,n)| n.previous == 0 && n.next == 0).map(|(i,_)| i).unwrap_or(0);
         write!(f, "{:?}",self.0[..end].to_vec())
-    }
-}
-
-struct OrderedDispersion<FV:FeatureVector,DO:DrawOrder<FV::K>> {
-    feature_vector: FV,
-    draw_order: DO,
-}
-
-impl<FV:FeatureVector,DO:DrawOrder<FV::K>> OrderedDispersion<FV,DO> {
-    fn from(feature_vector:FV,draw_order:DO) -> Self {
-        OrderedDispersion {
-            feature_vector,
-            draw_order,
-        }
     }
 }
 
@@ -500,8 +483,10 @@ where
     arena: A,
 }
 
-pub type MedianArray<V:SampleValue> = MedianArena<V,NodeArray<V>>;
-pub type MedianVector<V:SampleValue> = MedianArena<V,Vec<Node<usize,V>>>;
+pub type MedianArray<V> = MedianArena<V,NodeArray<V>>;
+pub type MedianVector<V> = MedianArena<V,Vec<Node<usize,V>>>;
+pub type MeanArray<V> = MeanArena<V,NodeArray<V>>;
+pub type MADArray<V> = MADArena<V,NodeArray<V>>;
 
 impl<A,V> LinkedVector for MedianArena<V,A>
 where
@@ -589,6 +574,7 @@ where
     }
     fn dispersion(&self) -> Self::V {
         self.ssme()
+        // self.sme()
     }
 
 }
@@ -608,7 +594,7 @@ where
 
         pub fn link_iterator<T:Iterator<Item=&'a (usize,V)>>(sorted_input: T,length:usize) -> Self {
             let mut mv = Self::with_capacity(length);
-            SegmentedVector::link_iterator(&mut mv,sorted_input.cloned(),length);
+            SegmentedVector::link_iterator(&mut mv,sorted_input.cloned());
             mv.balance();
             mv
         }
@@ -671,11 +657,26 @@ where
             else {V::zero()}
         }
 
-        fn ssme(&self) -> V {
+        pub fn ssme(&self) -> V {
             let median = self.median();
             let squared_sum = self.segments()[0].squared_sum + self.segments()[1].squared_sum + self.segments()[2].squared_sum;
             let sum = self.segments()[0].sum + self.segments()[1].sum + self.segments()[2].sum;
             squared_sum - ((V::from(2).expect("Cast failure"))*median*sum) + ((V::from(self.len()).expect("Cast failure")) * (median.pow(2)))
+        }
+
+        pub fn sme(&self) -> V {
+            let median = self.median();
+            let mut left_sum = (V::from(self.segments()[0].len()).expect("Cast failure") * median) - self.segments()[0].sum();
+            let mut right_sum = self.segments()[2].sum() - (V::from(self.segments()[2].len()).expect("Cast failure") * median);
+            if self.segments[1].len() == 2 {
+                let left_median_key = self.arena()[self.segments[1].left].next;
+                let left_median_value = self.arena()[left_median_key].value;
+                let right_median_key = self.arena()[self.segments[1].right].previous;
+                let right_median_value = self.arena()[right_median_key].value;
+                left_sum += median - left_median_value;
+                right_sum += right_median_value - median;
+            }
+            left_sum + right_sum
         }
 
 }
@@ -731,7 +732,7 @@ where
     }
 
     fn endcaps(&self,segment:usize) -> (Node<usize,V>,Node<usize,V>) {
-        let offset = (self.arena().len() - 2);
+        let offset = self.arena().len() - 2;
         let i1 = offset;
         let i2 = offset + 1;
         let e1 = Node {
@@ -767,6 +768,24 @@ where
     fn variance(&self) -> V {
         (self.segments[0].squared_sum / V::from(self.segments.len()).expect("Cast failure")) - self.mean().pow(2)
     }
+
+
+    pub fn link(sorted_input:&[(usize,V)]) -> Self {
+        let mut mv = Self::with_capacity(sorted_input.len());
+        SegmentedVector::link(&mut mv,sorted_input);
+        mv.balance();
+        mv
+    }
+
+    fn with_capacity(capacity:usize) -> MeanArena<V,A> {
+
+        let mut mv = MeanArena{
+            segments: [IndexSegment::blank();1],
+            arena: NodeArena::<usize,V>::with_capacity(capacity+2),
+        };
+        mv.initialize();
+        mv
+    }
 }
 
 impl<V,A> FeatureVector for MeanArena<V,A>
@@ -778,7 +797,6 @@ where
         self.mean()
     }
     fn dispersion(&self) -> Self::V {
-        unimplemented!();
         self.variance()
     }
 }
@@ -857,16 +875,7 @@ where
     }
 
     fn balance(&mut self) {
-        self.size_median();
-        // println!("Balancing");
-        while {self.segments()[0].len()} < {self.segments()[2].len()} {
-            // println!("Shifting median left");
-            self.shift_median_right();
-        }
-        while {self.segments()[0].len()} > {self.segments()[2].len()} {
-            // println!("Shifting median right");
-            self.shift_median_left();
-        }
+        unimplemented!()
     }
 
 }
@@ -885,7 +894,7 @@ where
 
     pub fn link_iterator<T:Iterator<Item=&'a (usize,V)>>(sorted_input: T,length:usize) -> Self {
         let mut mv = Self::with_capacity(length);
-        SegmentedVector::link_iterator(&mut mv,sorted_input.cloned(),length);
+        SegmentedVector::link_iterator(&mut mv,sorted_input.cloned());
         mv.balance();
         mv
     }
@@ -900,6 +909,105 @@ where
         mv
     }
 
+    fn outer_left(&self) -> Option<&Node<usize,V>> {
+        if self.segments()[0].len() > 0 {
+            let ol_key = self.arena()[self.segments[0].right].previous;
+            Some(&self.arena()[ol_key])
+        }
+        else {None}
+    }
+
+    fn outer_right(&self) -> Option<&Node<usize,V>> {
+        if self.segments()[4].len() > 0 {
+            let or_key = self.arena()[self.segments[4].left].next;
+            Some(&self.arena()[or_key])
+        }
+        else {None}
+    }
+
+    fn inner_left(&self) -> Option<&Node<usize,V>> {
+        let cl_key;
+        if self.segments()[1].len() > 0 {
+            cl_key = self.arena()[self.segments[1].left].next;
+        }
+        else {
+            cl_key = self.arena()[self.segments[2].left].next;
+        }
+        Some(&self.arena()[cl_key])
+    }
+
+    fn inner_right(&self) -> Option<&Node<usize,V>> {
+        let cr_key;
+        if self.segments()[3].len() > 0 {
+            cr_key = self.arena()[self.segments[3].right].previous;
+        }
+        else {
+            cr_key = self.arena()[self.segments[2].right].previous;
+        }
+        Some(&self.arena()[cr_key])
+    }
+
+    fn shift_left(&mut self) {
+        self.shift_boundary_left(0,1);
+        self.shift_boundary_left(1,2);
+        self.shift_boundary_left(2,3);
+    }
+
+    fn shift_right(&mut self) {
+        self.shift_boundary_right(0,1);
+        self.shift_boundary_right(1,2);
+        self.shift_boundary_right(2,3);
+    }
+
+    fn expand_1(&mut self) {
+        let left = self.outer_left();
+        let right = self.outer_right();
+
+        if let (Some(Node{value:left_value,..}),Some(Node{value:right_value,..})) = (left,right) {
+            let median = self.median();
+            if (median - *left_value) > (*right_value - median) {
+                self.shift_boundary_right(3,4);
+            }
+            else {
+                self.shift_boundary_left(0,1)
+            }
+        }
+        else if left.is_some() {
+            self.shift_boundary_left(0,1);
+        }
+        else if right.is_some() {
+            self.shift_boundary_right(3,4);
+        }
+        else {panic!("Boundary violation: {:?}",self)}
+    }
+
+    fn contract_1(&mut self) {
+        let left = self.inner_left();
+        let right = self.inner_right();
+
+        if let (Some(Node{value:left_value,..}),Some(Node{value:right_value,..})) = (left,right) {
+            let median = self.median();
+            if (median - *left_value) > (*right_value - median) {
+                self.shift_boundary_right(1,2);
+            }
+            else {
+                self.shift_boundary_left(2,3)
+            }
+        }
+        else if left.is_some() {
+            self.shift_boundary_right(1,2);
+        }
+        else if right.is_some() {
+            self.shift_boundary_left(3,4);
+        }
+        else {panic!("Boundary violation: {:?}",self)}
+    }
+
+    fn size_center(&mut self) {
+        while (self.segments()[0].len() + self.segments()[4].len()) > (self.segments()[1].len() + self.segments()[2].len() + self.segments()[3].len()) {
+            self.expand_1();
+        }
+    }
 
     fn size_median(&mut self) {
         // println!("Initializing median");
@@ -950,19 +1058,37 @@ where
     }
 
 }
-//
-//
-// impl<FV:FeatureVector,DO:DrawOrder<FV::K>> Iterator for OrderedDispersion<FV,DO> {
-//     type Item = FV::V;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if let Some(key) = self.draw_order.next() {
-//             self.feature_vector.pop(key);
-//             return Some(self.feature_vector.dispersion())
-//         }
-//         else {None}
-//     }
-// }
+
+enum DispersionArray<V:SampleValue> {
+    SME {vector:MedianArray<V>},
+    SSME {vector:MedianArray<V>},
+    Variance {vector:MeanArray<V>},
+    MAD {vector:MADArray<V>},
+}
+
+use crate::io::DispersionMode;
+impl<V:SampleValue> DispersionArray<V>{
+
+    fn link(sorted_input:&[(usize,V)],dispersion:DispersionMode) -> Self {
+
+        match dispersion {
+            DispersionMode::SME => {DispersionArray::SME{vector:MedianArray::link(sorted_input)}},
+            DispersionMode::SSME => {DispersionArray::SSME{vector:MedianArray::link(sorted_input)}},
+            DispersionMode::Variance => {DispersionArray::Variance{vector:MeanArray::link(sorted_input)}},
+            DispersionMode::MAD => {DispersionArray::MAD{vector:MADArray::link(sorted_input)}},
+            _ => {unimplemented!()},
+        }
+    }
+
+    fn dispersion(&self) -> V {
+        match self {
+            DispersionArray::SME{vector} => {vector.sme()},
+            DispersionArray::SSME{vector} => {vector.ssme()},
+            DispersionArray::Variance{vector} => {vector.variance()},
+            DispersionArray::MAD{vector} => {unimplemented!()},
+        }
+    }
+}
 
 #[cfg(test)]
 mod random_forest_tests {
@@ -1042,7 +1168,7 @@ mod random_forest_tests {
 
 
     fn argsorted() -> Vec<(usize,f64)> {
-        let mut s = simple_values();
+        let s = simple_values();
         let mut paired: Vec<(usize,f64)> = s.into_iter().enumerate().collect();
         paired.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         return paired

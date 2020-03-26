@@ -1,39 +1,27 @@
 
-use std::sync::Arc;
 use std::cmp::PartialOrd;
-use std::cmp::Ordering;
-use std::sync::mpsc;
 use std::f64;
-use std::mem::replace;
-use std::collections::{HashMap,HashSet};
+use std::collections::{HashMap};
 use serde_json;
 
 extern crate rand;
-use rand::Rng;
 
 use rayon::prelude::*;
 
-use crate::{Feature,InputFeature,OutputFeature,Forest,Reduction};
+use crate::{InputFeature,OutputFeature,Forest,Reduction};
 use crate::Sample;
-use crate::SampleKey;
-use crate::FeatureKey;
 use crate::SampleValue;
 use crate::Prototype;
 use crate::SampleFilter;
 use crate::subsample;
-use rayon::prelude::*;
 // use crate::io::DispersionMode;
 use crate::io::ParameterBook;
 use crate::rank_vector::{SegmentedVector,FeatureVector};
-use crate::nipals::calculate_projection;
 use crate::valsort;
 use crate::rank_vector::MedianArray;
-use std::iter::Map;
-use crate::argmax;
 use crate::ArgMinMax;
 use nipals::Projector;
-
-use rayon::prelude::*;
+use ndarray::Array1;
 
 use crate::{PrototypeUF,InputFeatureUF,OutputFeatureUF,SampleUF,ForestUF,SerializedFilter};
 
@@ -74,6 +62,7 @@ pub trait ComputeNode<'a>: Node<'a>
     fn derive(&self,SampleFilter<Self::InputFeature>) -> Option<Self>;
 
     fn split(&mut self,depth:usize) -> Option<&mut Self> {
+        use num_traits::{NumCast};
 
         if depth > self.parameters().depth_cutoff || self.samples().len() < self.parameters().leaf_size_cutoff {
             return None
@@ -93,31 +82,34 @@ pub trait ComputeNode<'a>: Node<'a>
 
         // println!("SUBSAMPLED");
 
-        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
+        // let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
-        let (reduced_output,output_reduction,output_means,output_scales) = Projector::from(output_intermediate).calculate_projection();
-        let (reduced_input,input_reduction,input_means,input_scales) = Projector::from(input_intermediate).calculate_projection();
+        let (reduced_output,output_scores,output_means,_) = Projector::from(output_intermediate).calculate_projection();
         let valsorted: Vec<(usize,f64)> = valsort(reduced_output.to_vec().into_iter());
 
-        // let reduced_output = reduced_output / output_scales;
+        let output_reduction =
+            Reduction::from(
+                output_feature_subsample,
+                output_scores.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect(),
+                output_means.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect());
 
         // println!("REDUCED");
         // println!("{:?}",reduction);
         // println!("{:?}", reduced_intermediate);
         // println!("{:?}", valsorted);
 
-        let mut mv = MedianArray::link(&valsorted);
+        let mv = MedianArray::link(&valsorted);
         // println!("LINKED");
         // println!("{:?}", mv);
 
         let sample_indices = sample_subsample.iter().map(|s| s.index()).collect();
-        let mut cached_sorter = CachedSorter::from(sample_indices);
+        let cached_sorter = CachedSorter::from(sample_indices);
 
         // println!("CACHED");
         // println!("{:?}",cached_sorter);
 
         let sfr = self.prototype().parameters().split_fraction_regularization;
-        let (best_feature,(best_sample,dispersion)) = input_feature_subsample
+        let (best_feature,(best_sample,_)) = input_feature_subsample
         // .into_iter()
         .into_par_iter()
         .map(|f| {
@@ -166,6 +158,9 @@ pub trait ComputeNode<'a>: Node<'a>
 
         let (left_fitler,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
 
+        let left_oob = left_fitler.filter_samples(&out_bag);
+        let right_oob = right_filter.filter_samples(&out_bag);
+
         if let (Some(left_child),Some(right_child)) = (self.derive(left_fitler),self.derive(right_filter)) {
             self.mut_children().push(left_child);
             self.mut_children().push(right_child);
@@ -181,7 +176,7 @@ pub trait ComputeNode<'a>: Node<'a>
     }
 
     fn double_reduce(&mut self,depth:usize) -> Option<&mut Self> {
-        use num_traits::{NumCast,Zero};
+        use num_traits::{NumCast};
 
         if depth > self.parameters().depth_cutoff || self.samples().len() < self.parameters().leaf_size_cutoff {
             return None
@@ -213,14 +208,12 @@ pub trait ComputeNode<'a>: Node<'a>
                 output_scores.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect(),
                 output_means.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect());
 
-
-
         let valsorted_input: Vec<(usize,f64)> = valsort(reduced_input.to_vec().into_iter());
         let valsorted_output: Vec<(usize,f64)> = valsort(reduced_output.to_vec().into_iter());
 
         let draw_order: Vec<usize> = valsorted_input.into_iter().map(|(i,_)| i).collect();
         let mut dispersions = vec![0.;draw_order.len()];
-        let mut mv = MedianArray::link(&valsorted_output);
+        let mv = MedianArray::link(&valsorted_output);
 
         let sfr = self.prototype().parameters().split_fraction_regularization;
 
@@ -229,22 +222,18 @@ pub trait ComputeNode<'a>: Node<'a>
         let mut mv_r = mv.clone();
 
         for (i,draw) in draw_order.iter().enumerate() {
-            // println!("POSITION:{:?}",i);
             mv_f.pop(*draw);
             let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
             {dispersions[i] = mv_f.dispersion() * regularization;}
-            // println!("{:?}",dispersions[i]);
         }
         for (i,draw) in draw_order.iter().rev().enumerate() {
-            // println!("POSITION:{:?}",ss_len - i -1);
             mv_r.pop(*draw);
             let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
             {dispersions[ss_len - i -1] += mv_r.dispersion() * regularization;}
-            // println!("{:?}",dispersions[ss_len - i -1]);
 
         }
         //     // println!("FINISHED DISPERSIONS:{:?}",dispersions);
-        let (best_split,&dispersion) = dispersions.iter().argmin_v()?;
+        let (best_split,_) = dispersions.iter().argmin_v()?;
         let local_index = draw_order[best_split];
         let split = NumCast::from(reduced_input[local_index]).expect("Cast failure");
 
@@ -261,6 +250,20 @@ pub trait ComputeNode<'a>: Node<'a>
             Some(self)
         }
         else { Some(self) }
+
+    }
+
+    fn check_predictions(filter:&SampleFilter<Self::InputFeature>,output_reduction:&Reduction<Self::OutputFeature>,in_bag:&[Self::Sample],out_bag:&[Self::Sample])
+    {
+        let filtered_inbag = filter.filter_samples(in_bag);
+        let filtered_outbag = filter.filter_samples(out_bag);
+
+        let reduced_inbag: Array1<Self::Value> = filtered_inbag.iter().map(|s| output_reduction.transform_sample(s)).collect();
+        let sorted_reduced_inbag:Vec<(usize,Self::Value)> = valsort(reduced_inbag.to_vec().into_iter());
+        let mv = MedianArray::link(&sorted_reduced_inbag);
+        let prediction = mv.central_tendency();
+
+        let reduced_outbag: Array1<Self::Value> = filtered_outbag.iter().map(|s| output_reduction.transform_sample(s)).collect();
 
     }
 
@@ -290,7 +293,7 @@ impl SampleIndexNode
         use std::fs::OpenOptions;
         use std::io::Write;
         let mut handle = OpenOptions::new().write(true).truncate(true).create(true).open(filename).ok()?;
-        handle.write(serde_json::to_string(self).ok()?.as_bytes());
+        handle.write(serde_json::to_string(self).ok()?.as_bytes()).ok()?;
         Some(())
     }
 }
@@ -414,7 +417,7 @@ impl CachedSorter {
 
 
         for (ss_index,key) in self.subsample.iter().enumerate() {
-            if let Some((minimum_rank,quantity)) = self.stencil.get_mut(key) {
+            if let Some((minimum_rank,_)) = self.stencil.get_mut(key) {
                 self.draw_order[*minimum_rank] = ss_index;
                 *minimum_rank += 1;
             }

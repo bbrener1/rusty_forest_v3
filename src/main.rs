@@ -3,6 +3,9 @@
 // extern crate test;
 // use test::Bencher;
 //
+#![allow(dead_code)]
+#![allow(unused_assignments)]
+
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -19,7 +22,7 @@ extern crate rayon;
 extern crate num_traits;
 
 mod rank_vector;
-mod rank_matrix;
+// mod rank_matrix;
 mod io;
 mod node;
 mod nipals;
@@ -27,33 +30,28 @@ mod nipals;
 use std::hash::Hash;
 use std::cmp::{Eq,PartialOrd};
 use std::fmt::{Debug};
-use num_traits::{Zero,One,Num,FromPrimitive,ToPrimitive,NumCast,Pow,Bounded,Signed};
+use num_traits::{Zero,One,Num,NumCast,Pow,Bounded,Signed};
 use std::str::FromStr;
-use std::ops::{SubAssign,AddAssign,Sub};
+use std::ops::{SubAssign,AddAssign};
 use std::iter::Sum;
 use std::sync::Arc;
 use std::convert::Into;
 
 use ndarray::prelude::*;
 use ndarray::{LinalgScalar};
-use std::collections::HashMap;
 
 use crate::io::{ParameterBook};
 use crate::node::{Node,ComputeNode,FastNode};
 use std::env;
-use std::marker::PhantomData;
-use nipals::Projector;
+
 use rayon::prelude::*;
-
-use ndarray::iter::Iter;
-
 
 fn main() {
     let mut arg_iter = env::args();
 
-    let mut parameters: ParameterBook<f64> = crate::io::read(&mut arg_iter);
+    let parameters: ParameterBook<f64> = crate::io::read(&mut arg_iter);
 
-    let mut forest = ForestUF::from_parameters(parameters);
+    let forest = ForestUF::from_parameters(parameters);
     let report_address = forest.parameters().report_address.clone();
     let tree_limit = forest.parameters().tree_limit;
 
@@ -228,7 +226,7 @@ impl<IF:InputFeature> SampleFilter<IF> {
         }
         else {
             for sample in samples {
-                let mut compound_score = self.reduction.transform_sample(sample);
+                let compound_score = self.reduction.transform_sample(sample);
                 if compound_score <= self.split {
                     new.push(sample.clone())
                 }
@@ -250,7 +248,7 @@ impl<IF:InputFeature> SampleFilter<IF> {
         }
         else {
             for sample in samples {
-                let mut compound_score = self.reduction.transform_sample_scaled(sample);
+                let compound_score = self.reduction.transform_sample_scaled(sample);
                 if compound_score <= self.split {
                     new.push(sample.clone())
                 }
@@ -298,7 +296,7 @@ impl<F:Feature> Reduction<F> {
         Reduction {
             features:vec![feature.clone()],
             scores:vec![F::Value::one()],
-            means:vec![F::Value::zero()],
+            means:vec![feature.sample(sample)],
         }
     }
 
@@ -392,12 +390,12 @@ impl<'a,V:SampleValue> Forest for ForestUF<V> {
     type OutputFeature = OutputFeatureUF<V>;
     type Prototype = PrototypeUF<V>;
 
-    fn from_parameters(mut parameters:ParameterBook<V>) -> Self {
+    fn from_parameters(parameters:ParameterBook<V>) -> Self {
         let prototype = Arc::new(PrototypeUF::from_parameters(parameters));
         let input_features = (0..prototype.parameters.input_feature_names.len()).map(|i| Self::InputFeature::from_index(i,prototype.clone())).collect::<Vec<Self::InputFeature>>();
         let output_features = (0..prototype.parameters.output_feature_names.len()).map(|i| Self::OutputFeature::from_index(i,prototype.clone())).collect();
         let samples = (0..prototype.parameters.sample_names.len()).map(|i| Self::Sample::from_index(i,prototype.clone())).collect();
-        let mut forest =  ForestUF {
+        let forest =  ForestUF {
             prototype,
             input_features,
             output_features,
@@ -424,7 +422,7 @@ impl<'a,V:SampleValue> Forest for ForestUF<V> {
     }
 }
 
-trait Forest: Send + Sync {
+pub trait Forest: Send + Sync {
     type Value: SampleValue;
     type Sample: Sample<Prototype=Self::Prototype,Value=Self::Value>;
     type InputFeature: InputFeature<Prototype=Self::Prototype,Value=Self::Value,Sample=Self::Sample>;
@@ -694,7 +692,7 @@ pub fn argmax<T:Iterator<Item=U>,U:PartialOrd + PartialEq>(input: T) -> Option<u
         maximum = check;
 
     };
-    maximum.map(|(i,m)| i)
+    maximum.map(|(i,_)| i)
 }
 
 
@@ -738,7 +736,7 @@ pub fn argmin<T:Iterator<Item=U>,U:PartialOrd + PartialEq>(input: T) -> Option<u
         minimum = check;
 
     };
-    minimum.map(|(i,m)| i)
+    minimum.map(|(i,_)| i)
 }
 
 
