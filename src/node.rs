@@ -229,7 +229,7 @@ pub trait ComputeNode<'a>: Node<'a>
         for (i,draw) in draw_order.iter().rev().enumerate() {
             mv_r.pop(*draw);
             let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
-            {dispersions[ss_len - i -1] += mv_r.dispersion() * regularization;}
+            {dispersions[ss_len - i - 1] += mv_r.dispersion() * regularization;}
 
         }
         //     // println!("FINISHED DISPERSIONS:{:?}",dispersions);
