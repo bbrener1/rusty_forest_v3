@@ -360,7 +360,7 @@ impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {
 
 impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
     fn derive(&self,filter:SampleFilter<InputFeatureUF<V>>) -> Option<FastNode<'a,V>> {
-        let new_samples = filter.filter_samples(&self.samples);
+        let new_samples = filter.filter_samples_scaled(&self.samples);
         if new_samples.len() > 0 {
             Some(FastNode {
                 samples: new_samples,
