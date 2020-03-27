@@ -136,11 +136,12 @@ pub trait SegmentedVector: LinkedVector
         (0..self.segments().len()).flat_map(|s| self.crawl_segment_ordered(s)).map(|n| n.key).collect()
     }
 
-    fn pop(&mut self,key:Self::K) {
+    fn pop(&mut self,key:Self::K) -> Self::V {
         let target = LinkedVector::unlink_node(self,key);
         let segment = &mut self.segments_mut()[target.segment];
         segment.pop(&target);
         self.balance();
+        target.value
     }
 
     fn push_segment_left(&mut self,segment:usize,node:Node<Self::K,Self::V>) {
@@ -350,6 +351,7 @@ pub trait FeatureVector: SegmentedVector
 {
     fn central_tendency(&self) -> Self::V;
     fn dispersion(&self) -> Self::V;
+
 }
 
 #[derive(Clone,Copy,Debug,Serialize,Deserialize)]
@@ -677,6 +679,15 @@ where
                 right_sum += right_median_value - median;
             }
             left_sum + right_sum
+        }
+
+        pub fn check_integrity(&self) {
+            use NumCast;
+
+            let ordered_values = self.ordered_values();
+            let own_ssme:f64 = NumCast::from(self.ssme()).unwrap();
+            let correct_ssme = slow_ssme(&ordered_values.iter().map(|v| NumCast::from(*v).unwrap()).collect());
+            assert!((own_ssme-correct_ssme).abs() < 0.0001);
         }
 
 }
@@ -1090,67 +1101,68 @@ impl<V:SampleValue> DispersionArray<V>{
     }
 }
 
+
+fn slow_median(values: &Vec<f64>) -> f64 {
+    let median: f64;
+    if values.len() < 1 {
+        return 0.
+    }
+
+    if values.len()%2==0 {
+        median = (values[values.len()/2] + values[values.len()/2 - 1]) as f64 / 2.;
+    }
+    else {
+        median = values[(values.len()-1)/2];
+    }
+
+    median
+
+}
+
+fn slow_mad(values: &Vec<f64>) -> f64 {
+    let median: f64;
+    if values.len() < 1 {
+        return 0.
+    }
+    if values.len()%2==0 {
+        median = (values[values.len()/2] + values[values.len()/2 - 1]) as f64 / 2.;
+    }
+    else {
+        median = values[(values.len()-1)/2];
+    }
+
+    let mut abs_deviations: Vec<f64> = values.iter().map(|x| (x-median).abs()).collect();
+
+    abs_deviations.sort_by(|a,b| a.partial_cmp(&b).unwrap_or(Ordering::Greater));
+
+    let mad: f64;
+    if abs_deviations.len()%2==0 {
+        mad = (abs_deviations[abs_deviations.len()/2] + abs_deviations[abs_deviations.len()/2 - 1]) as f64 / 2.;
+    }
+    else {
+        mad = abs_deviations[(abs_deviations.len()-1)/2];
+    }
+
+    mad
+
+}
+
+pub fn slow_ssme(values: &Vec<f64>) -> f64 {
+    let median = slow_median(values);
+    values.iter().map(|x| (x - median).powi(2)).sum()
+}
+
+fn slow_sme(values: &Vec<f64>) -> f64 {
+    let median = slow_median(values);
+    values.iter().map(|x| (x - median).abs()).sum()
+}
+
 #[cfg(test)]
 mod random_forest_tests {
 
     use rand::prelude::*;
     use super::*;
 
-
-    fn slow_median(values: &Vec<f64>) -> f64 {
-        let median: f64;
-        if values.len() < 1 {
-            return 0.
-        }
-
-        if values.len()%2==0 {
-            median = (values[values.len()/2] + values[values.len()/2 - 1]) as f64 / 2.;
-        }
-        else {
-            median = values[(values.len()-1)/2];
-        }
-
-        median
-
-    }
-
-    fn slow_mad(values: &Vec<f64>) -> f64 {
-        let median: f64;
-        if values.len() < 1 {
-            return 0.
-        }
-        if values.len()%2==0 {
-            median = (values[values.len()/2] + values[values.len()/2 - 1]) as f64 / 2.;
-        }
-        else {
-            median = values[(values.len()-1)/2];
-        }
-
-        let mut abs_deviations: Vec<f64> = values.iter().map(|x| (x-median).abs()).collect();
-
-        abs_deviations.sort_by(|a,b| a.partial_cmp(&b).unwrap_or(Ordering::Greater));
-
-        let mad: f64;
-        if abs_deviations.len()%2==0 {
-            mad = (abs_deviations[abs_deviations.len()/2] + abs_deviations[abs_deviations.len()/2 - 1]) as f64 / 2.;
-        }
-        else {
-            mad = abs_deviations[(abs_deviations.len()-1)/2];
-        }
-
-        mad
-
-    }
-
-    fn slow_ssme(values: &Vec<f64>) -> f64 {
-        let median = slow_median(values);
-        values.iter().map(|x| (x - median).powi(2)).sum()
-    }
-
-    fn slow_sme(values: &Vec<f64>) -> f64 {
-        let median = slow_median(values);
-        values.iter().map(|x| (x - median).abs()).sum()
-    }
 
     fn simple_values() -> Vec<f64> {
         vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]
@@ -1205,7 +1217,7 @@ mod random_forest_tests {
         let draw_order = random_draw_order();
         let mut argsorted: Vec<(usize,f64)> = floats.into_iter().enumerate().collect();
         argsorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        let mut mv = MedianVector::link(&argsorted);
+        let mut mv = MedianArray::link(&argsorted);
         for i in draw_order {
             mv.pop(i);
             let ordered_values = mv.ordered_values();

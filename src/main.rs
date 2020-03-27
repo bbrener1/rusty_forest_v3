@@ -56,6 +56,7 @@ fn main() {
     let tree_limit = forest.parameters().tree_limit;
 
     (0..tree_limit)
+        // .into_iter()
         .into_par_iter()
         .map(|i| {
             let mut root = FastNode::from_forest(&forest);
@@ -670,6 +671,11 @@ fn subsample<T:Clone>(collection:&[T],draws:usize) -> Vec<T> {
         new_collection.push(collection[sampler()].clone());
     }
     new_collection
+}
+
+fn logistic<T:NumCast>(input:T) -> f64 {
+    let f_cast: f64 = NumCast::from(input).unwrap();
+    1./ (1. + (std::f64::consts::E).powf(-1. * f_cast))
 }
 
 use std::cmp::Ordering;

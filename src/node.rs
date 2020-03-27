@@ -190,11 +190,17 @@ pub trait ComputeNode<'a>: Node<'a>
 
         let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
-        let (reduced_input,input_scores,input_means,input_scales) = Projector::from(input_intermediate).calculate_projection();
-        let (reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_projection();
-        let reduced_input = reduced_input / input_scales;
-        let reduced_output = reduced_output / output_scales;
+        let (mut reduced_input,input_scores,input_means,input_scales) = Projector::from(input_intermediate).calculate_projection();
+        let (mut reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_projection();
+        reduced_input /= &input_scales;
+        reduced_output /= &output_scales;
 
+        use crate::logistic;
+
+        reduced_output = reduced_output.mapv(logistic);
+
+        // println!("Reduced input:{:?}",reduced_input);
+        // println!("Reduced output:{:?}",reduced_output);
 
         let input_reduction =
             Reduction::from(
@@ -208,12 +214,16 @@ pub trait ComputeNode<'a>: Node<'a>
                 output_scores.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect(),
                 output_means.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect());
 
+        // println!("Reductions formed");
+
         let valsorted_input: Vec<(usize,f64)> = valsort(reduced_input.to_vec().into_iter());
         let valsorted_output: Vec<(usize,f64)> = valsort(reduced_output.to_vec().into_iter());
 
         let draw_order: Vec<usize> = valsorted_input.into_iter().map(|(i,_)| i).collect();
         let mut dispersions = vec![0.;draw_order.len()];
+        // println!("Linking");
         let mv = MedianArray::link(&valsorted_output);
+
 
         let sfr = self.prototype().parameters().split_fraction_regularization;
 
@@ -221,22 +231,32 @@ pub trait ComputeNode<'a>: Node<'a>
         let mut mv_f = mv.clone();
         let mut mv_r = mv.clone();
 
+        // println!("Draw order:{:?}",draw_order);
+        // println!("Initial dispersions:{:?},{:?}",mv_f.dispersion(),mv_r.dispersion());
+
         for (i,draw) in draw_order.iter().enumerate() {
-            mv_f.pop(*draw);
+            let v = mv_f.pop(*draw);
+            // mv_f.check_integrity();
             let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
+            // println!("D:{},{},{},{:?},R:{:?}",i,draw,v,mv_f.dispersion(),regularization);
             {dispersions[i] = mv_f.dispersion() * regularization;}
+            // println!("DF:{:?},{:?}",mv_f.dispersion() * regularization,dispersions[i]);
         }
+        // println!("Computing Reverse");
+        // println!("{:?}",draw_order.iter().rev().cloned().enumerate().collect::<Vec<(usize,usize)>>());
         for (i,draw) in draw_order.iter().rev().enumerate() {
-            mv_r.pop(*draw);
+            let v = mv_r.pop(*draw);
             let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
+            // println!("D:{},{},{},{:?},R:{:?}",i,draw,v,mv_r.dispersion(),regularization);
             {dispersions[ss_len - i - 1] += mv_r.dispersion() * regularization;}
-
+            // println!("DR:{:?},{:?}",mv_r.dispersion() * regularization,dispersions[ss_len - i - 1]);
         }
-        //     // println!("FINISHED DISPERSIONS:{:?}",dispersions);
-        let (best_split,_) = dispersions.iter().argmin_v()?;
+        // println!("FINISHED DISPERSIONS:{:?}",dispersions);
+        let (best_split,dispersion) = dispersions.iter().argmin_v().unwrap();
+        // println!("Best split:{:?},{:?}",best_split,dispersion);
         let local_index = draw_order[best_split];
+        // println!("Local index:{:?}",local_index);
         let split = NumCast::from(reduced_input[local_index]).expect("Cast failure");
-
         let (left_fitler,right_filter) = SampleFilter::from_reduction(input_reduction, split);
         //
         if let (Some(left_child),Some(right_child)) = (self.derive(left_fitler),self.derive(right_filter)) {
