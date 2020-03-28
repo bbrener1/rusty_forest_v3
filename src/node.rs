@@ -195,9 +195,9 @@ pub trait ComputeNode<'a>: Node<'a>
         reduced_input /= &input_scales;
         reduced_output /= &output_scales;
 
-        use crate::logistic;
+        // use crate::logistic;
 
-        reduced_output = reduced_output.mapv(logistic);
+        // reduced_output = reduced_output.mapv(logistic);
 
         // println!("Reduced input:{:?}",reduced_input);
         // println!("Reduced output:{:?}",reduced_output);
