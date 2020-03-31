@@ -22,7 +22,7 @@ extern crate rayon;
 extern crate num_traits;
 
 mod rank_vector;
-// mod rank_matrix;
+mod rank_matrix;
 mod io;
 mod node;
 mod nipals;
@@ -62,7 +62,10 @@ fn main() {
             let mut root = FastNode::from_forest(&forest);
             println!("Computing tree {:?}",i);
 
-            if let Some(mut sidxn) = root.double_reduce(0).map(|fast_n| fast_n.to_sidxn()) {
+            // if let Some(mut sidxn) = root.double_reduce(0).map(|fast_n| fast_n.to_sidxn()) {
+            //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
+            // }
+            if let Some(mut sidxn) = root.split(0).map(|fast_n| fast_n.to_sidxn()) {
                 sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
             }
         })

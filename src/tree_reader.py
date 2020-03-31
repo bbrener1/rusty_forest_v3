@@ -3347,12 +3347,12 @@ class NodeCluster:
         return self.forest.weighted_node_vector_prediction(self.nodes)
 
     def changed_absolute_root(self):
-        roots = [self.forest.nodes(root=True,depth=0)]
+        roots = self.forest.nodes(root=True,depth=0)
         ordered_features,ordered_difference = self.forest.node_change_absolute(roots,self.nodes)
         return ordered_features,ordered_difference
 
     def changed_log_root(self):
-        roots = [self.forest.nodes(root=True,depth=0)]
+        roots = self.forest.nodes(root=True,depth=0)
         ordered_features,ordered_difference = self.forest.node_change_log_fold(roots,self.nodes)
         return ordered_features,ordered_difference
 
@@ -3364,6 +3364,16 @@ class NodeCluster:
     def changed_log_fold(self):
         parents = [n.parent for n in self.nodes if n.parent is not None]
         ordered_features,ordered_difference = self.forest.node_change_log_fold(parents,self.nodes)
+        return ordered_features,ordered_difference
+
+    def changed_absolute_sister(self):
+        sisters = [n.sister() for n in self.nodes if n.sister() is not None]
+        ordered_features,ordered_difference = self.forest.node_change_absolute(sisters,self.nodes)
+        return ordered_features,ordered_difference
+
+    def changed_log_sister(self):
+        sisters = [n.sister() for n in self.nodes if n.sister() is not None]
+        ordered_features,ordered_difference = self.forest.node_change_log_fold(sisters,self.nodes)
         return ordered_features,ordered_difference
 
     def ranked_additive(self):
@@ -3496,13 +3506,16 @@ class NodeCluster:
 
         attributes = {}
 
-        parent_changed_features,change_fold = self.changed_log_fold()
+        changed_vs_parent,fold_vs_parent = self.changed_log_fold()
         changed_vs_all,fold_vs_all = self.changed_log_root()
+        changed_vs_sister,fold_vs_sister = self.changed_log_sister()
 
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
-        attributes['parentUpregulatedHtml'] = generate_feature_value_html(reversed(changed_features[-n:]),reversed(change_fold[-n:]),cmap='bwr')
-        attributes['parentDownregulatedHtml'] = generate_feature_value_html(reversed(changed_features[:n]),reversed(change_fold[:n]),cmap='bwr')
+        attributes['parentUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_parent[-n:]),reversed(fold_vs_parent[-n:]),cmap='bwr')
+        attributes['parentDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_parent[:n]),reversed(fold_vs_parent[:n]),cmap='bwr')
+        attributes['sisterUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_sister[-n:]),reversed(fold_vs_sister[-n:]),cmap='bwr')
+        attributes['sisterDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_sister[:n]),reversed(fold_vs_sister[:n]),cmap='bwr')
         attributes['absoluteUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_all[-n:]),reversed(fold_vs_all[-n:]),cmap='bwr')
         attributes['absoluteDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_all[:n]),reversed(fold_vs_all[:n]),cmap='bwr')
         attributes['children'] = ", ".join([c.name() for c in self.child_clusters()])
@@ -3575,7 +3588,7 @@ class NodeCluster:
         sister_scores = self.sister_scores()
         plt.figure()
         plt.title("Distribution of Samples \nIn This Cluster (Red) vs Its Sisters (Blue)")
-        plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],c=sister_scores,norm=DivergingNorm(0),cmap='bwr')
+        plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],s=1,alpha=.6,c=sister_scores,norm=DivergingNorm(0),cmap='bwr')
         plt.colorbar()
         plt.ylabel("tSNE Coordinates (AU)")
         plt.xlabel("tSNE Coordinates (AU)")
@@ -3596,7 +3609,7 @@ class NodeCluster:
         sample_scores = self.sample_scores()
         plt.figure()
         plt.title("Frequency of Samples In This Cluster")
-        plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],c=sample_scores)
+        plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],s=1,alpha=.6,c=sample_scores)
         plt.colorbar()
         plt.ylabel("tSNE Coordinates (AU)")
         plt.xlabel("tSNE Coordinates (AU)")

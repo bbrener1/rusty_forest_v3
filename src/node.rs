@@ -8,7 +8,7 @@ extern crate rand;
 
 use rayon::prelude::*;
 
-use crate::{InputFeature,OutputFeature,Forest,Reduction};
+use crate::{InputFeature,OutputFeature,Forest,Reduction,Feature};
 use crate::Sample;
 use crate::SampleValue;
 use crate::Prototype;
@@ -60,6 +60,7 @@ pub trait ComputeNode<'a>: Node<'a>
 {
 
     fn derive(&self,SampleFilter<Self::InputFeature>) -> Option<Self>;
+    fn derive_scaled(&self,SampleFilter<Self::InputFeature>) -> Option<Self>;
 
     fn split(&mut self,depth:usize) -> Option<&mut Self> {
         use num_traits::{NumCast};
@@ -156,12 +157,12 @@ pub trait ComputeNode<'a>: Node<'a>
 
         // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
 
-        let (left_fitler,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
+        let (left_filter,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
 
-        let left_oob = left_fitler.filter_samples(&out_bag);
+        let left_oob = left_filter.filter_samples(&out_bag);
         let right_oob = right_filter.filter_samples(&out_bag);
 
-        if let (Some(left_child),Some(right_child)) = (self.derive(left_fitler),self.derive(right_filter)) {
+        if let (Some(left_child),Some(right_child)) = (self.derive(left_filter),self.derive(right_filter)) {
             self.mut_children().push(left_child);
             self.mut_children().push(right_child);
 
@@ -257,9 +258,9 @@ pub trait ComputeNode<'a>: Node<'a>
         let local_index = draw_order[best_split];
         // println!("Local index:{:?}",local_index);
         let split = NumCast::from(reduced_input[local_index]).expect("Cast failure");
-        let (left_fitler,right_filter) = SampleFilter::from_reduction(input_reduction, split);
+        let (left_filter,right_filter) = SampleFilter::from_reduction(input_reduction, split);
         //
-        if let (Some(left_child),Some(right_child)) = (self.derive(left_fitler),self.derive(right_filter)) {
+        if let (Some(left_child),Some(right_child)) = (self.derive_scaled(left_filter),self.derive_scaled(right_filter)) {
             self.mut_children().push(left_child);
             self.mut_children().push(right_child);
 
@@ -380,6 +381,20 @@ impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {
 
 impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
     fn derive(&self,filter:SampleFilter<InputFeatureUF<V>>) -> Option<FastNode<'a,V>> {
+        let new_samples = filter.filter_samples(&self.samples);
+        if new_samples.len() > 0 {
+            Some(FastNode {
+                samples: new_samples,
+                forest: self.forest,
+                parameters: self.parameters,
+                filter: filter,
+                children: vec![],
+            })
+        }
+        else { None }
+    }
+
+    fn derive_scaled(&self,filter:SampleFilter<InputFeatureUF<V>>) -> Option<FastNode<'a,V>> {
         let new_samples = filter.filter_samples_scaled(&self.samples);
         if new_samples.len() > 0 {
             Some(FastNode {
