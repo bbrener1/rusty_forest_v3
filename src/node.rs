@@ -21,7 +21,8 @@ use crate::valsort;
 use crate::rank_vector::MedianArray;
 use crate::ArgMinMax;
 use nipals::Projector;
-use ndarray::Array1;
+use ndarray::{Array1,Array2};
+use rank_matrix::split;
 
 use crate::{PrototypeUF,InputFeatureUF,OutputFeatureUF,SampleUF,ForestUF,SerializedFilter};
 
@@ -69,91 +70,67 @@ pub trait ComputeNode<'a>: Node<'a>
             return None
         }
 
-        // println!("SPLITTING");
+        let input_feature_subsample: Vec<Self::InputFeature> = self.forest().subsample_input_features();
+        let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().subsample_output_features();
+        let (in_bag,out_bag) = self.sample_bags();
+        let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
+
+        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
+        let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
+        let (mut reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_projection();
+
+        let mut raveled_output:Array2<f64> = Array2::zeros((reduced_output.dim(),1));
+        raveled_output.column_mut(0).assign(&(reduced_output / output_scales));
+
+        let (best_feature_index,best_sample_index) = split(&input_intermediate,&raveled_output,self.parameters().split_fraction_regularization)?;
+        let (best_feature,best_sample) = (input_feature_subsample[best_feature_index].clone(),sample_subsample[best_sample_index].clone());
+        // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
+
+        let (left_filter,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
+
+        let left_oob = left_filter.filter_samples(&out_bag);
+        let right_oob = right_filter.filter_samples(&out_bag);
+
+        if let (Some(left_child),Some(right_child)) = (self.derive(left_filter),self.derive(right_filter)) {
+            self.mut_children().push(left_child);
+            self.mut_children().push(right_child);
+
+            for child in self.mut_children() {
+                child.split(depth+1);
+            }
+
+            Some(self)
+        }
+        else { Some(self) }
+
+    }
+
+
+    fn smooth_split(&mut self,depth:usize) -> Option<&mut Self> {
+        use num_traits::{NumCast};
+
+        if depth > self.parameters().depth_cutoff || self.samples().len() < self.parameters().leaf_size_cutoff {
+            return None
+        }
 
         let input_feature_subsample: Vec<Self::InputFeature> = self.forest().subsample_input_features();
         let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().subsample_output_features();
         let (in_bag,out_bag) = self.sample_bags();
         let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
-        // let sample_subsample: Vec<&Self::Sample> = subsample(self.samples(), self.forest().parameters().sample_subsample);
-        // let sample_subsample: Vec<&Self::Sample> = subsample(&samples, self.forest().parameters().sample_subsample);
-        // let input_feature_subsample: Vec<Self::InputFeature> = self.forest().input_features().to_vec();
-        // let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().output_featues().to_vec();
-        // let sample_subsample: Vec<Self::Sample> = self.samples().to_vec();
 
-        // println!("SUBSAMPLED");
 
-        // let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
+        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
-        let (reduced_output,output_scores,output_means,_) = Projector::from(output_intermediate).calculate_projection();
-        let valsorted: Vec<(usize,f64)> = valsort(reduced_output.to_vec().into_iter());
+        let (mut reduced_input,input_scores,input_means,input_scales) = Projector::from(input_intermediate).calculate_n_projections(self.parameters().braid_thickness);
+        let (mut reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_n_projections(self.parameters().braid_thickness);
 
-        let output_reduction =
-            Reduction::from(
-                output_feature_subsample,
-                output_scores.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect(),
-                output_means.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect());
+        reduced_input /= &input_scales;
+        reduced_output /= &output_scales;
 
-        // println!("REDUCED");
-        // println!("{:?}",reduction);
-        // println!("{:?}", reduced_intermediate);
-        // println!("{:?}", valsorted);
+        let smoothed_input = reduced_input.dot(&input_scores);
 
-        let mv = MedianArray::link(&valsorted);
-        // println!("LINKED");
-        // println!("{:?}", mv);
-
-        let sample_indices = sample_subsample.iter().map(|s| s.index()).collect();
-        let cached_sorter = CachedSorter::from(sample_indices);
-
-        // println!("CACHED");
-        // println!("{:?}",cached_sorter);
-
-        let sfr = self.prototype().parameters().split_fraction_regularization;
-        let (best_feature,(best_sample,_)) = input_feature_subsample
-        // .into_iter()
-        .into_par_iter()
-        .map(|f| {
-            // println!("FEATURE:{:?}",f.index());
-            let si = f.sorted_indices();
-            // println!("{:?}", si);
-            let mut local_sorter = cached_sorter.clone();
-            let mut dispersions = vec![0.;cached_sorter.draw_order.len()];
-            // let mut local_sorter = &mut cached_sorter;
-            local_sorter.sort(si.iter());
-            // println!("SORTED:{:?}",cached_sorter);
-            // println!("SORTED+VAL:{:?}", cached_sorter.draw_order.iter().map(|i| InputFeature::slice(&f)[*i]).collect::<Vec<Self::Value>>());
-            let ss_len = sample_subsample.len();
-            let mut mv_f = mv.clone();
-            let mut mv_r = mv.clone();
-            for (i,draw) in local_sorter.draw_order.iter().enumerate() {
-                // println!("POSITION:{:?}",i);
-                mv_f.pop(*draw);
-                let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
-                {dispersions[i] = mv_f.dispersion() * regularization;}
-                // println!("{:?}",dispersions[i]);
-            }
-            for (i,draw) in local_sorter.draw_order.iter().rev().enumerate() {
-                // println!("POSITION:{:?}",ss_len - i -1);
-                mv_r.pop(*draw);
-                let regularization = ((ss_len - i) as f64 / ss_len as f64).powf(sfr);
-                {dispersions[ss_len - i -1] += mv_r.dispersion() * regularization;}
-                // println!("{:?}",dispersions[ss_len - i -1]);
-
-            }
-            // println!("FINISHED DISPERSIONS:{:?}",dispersions);
-            if let Some((best_split,&dispersion)) = dispersions.iter().argmin_v()
-            {
-                let best_sample_local_index = local_sorter.draw_order[best_split];
-                let best_sample = sample_subsample[best_sample_local_index].clone();
-                Some((f,(best_sample,dispersion)))
-            }
-            else {None}
-
-                // F64 Minimum because Rust gonna Rust
-        })
-        .flat_map(|x| x)
-        .min_by(|a,b| (a.1).1.partial_cmp(&(b.1).1).unwrap()).unwrap();
+        let (best_feature_index,best_sample_index) = split(&smoothed_input,&reduced_output,self.parameters().split_fraction_regularization)?;
+        let (best_feature,best_sample) = (input_feature_subsample[best_feature_index].clone(),sample_subsample[best_sample_index].clone());
 
         // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
 
