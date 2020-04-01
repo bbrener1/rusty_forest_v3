@@ -85,17 +85,21 @@ impl Projector {
         }
     }
 
-    pub fn calculate_n_projections(mut self,n:usize) -> (Array2<f64>,Array2<f64>,Array1<f64>,Array1<f64>) {
+    pub fn calculate_n_projections(mut self,n:usize) -> (Array2<f64>,Array2<f64>,Array2<f64>,Array2<f64>) {
         let mut loadings = Array2::zeros((n,self.converted.dim().0));
         let mut scores = Array2::zeros((n,self.converted.dim().1));
+        let mut means = Array2::zeros((n,self.converted.dim().1));
+        let mut scale_factors = Array2::zeros((n,self.converted.dim().0));
         for i in 0..n {
-            println!("Projection {:?}",i);
-            println!("{:?}",self);
-            let (n_loadings,n_scores,_,_)= self.calculate_projection();
+            // println!("Projection {:?}",i);
+            // println!("{:?}",self);
+            let (n_loadings,n_scores,n_means,n_scale_factors)= self.calculate_projection();
             loadings.row_mut(i).assign(&n_loadings);
             scores.row_mut(i).assign(&n_scores);
+            means.row_mut(i).assign(&n_means);
+            scale_factors.row_mut(i).assign(&n_scale_factors);
         }
-        (loadings,scores,self.means,self.scale_factors)
+        (loadings,scores,means,scale_factors)
     }
 
 }

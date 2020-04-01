@@ -51,9 +51,13 @@ fn main() {
 
     let parameters: ParameterBook<f64> = crate::io::read(&mut arg_iter);
 
+    println!("Read parameters");
+
     let forest = ForestUF::from_parameters(parameters);
     let report_address = forest.parameters().report_address.clone();
     let tree_limit = forest.parameters().tree_limit;
+
+    println!("Starting loop");
 
     (0..tree_limit)
         // .into_iter()
@@ -68,6 +72,10 @@ fn main() {
             if let Some(mut sidxn) = root.split(0).map(|fast_n| fast_n.to_sidxn()) {
                 sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
             }
+            // if let Some(mut sidxn) = root.smooth_split(0).map(|fast_n| fast_n.to_sidxn()) {
+            //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
+            // }
+
         })
         .collect::<Vec<()>>();
 

@@ -614,9 +614,9 @@ fn read_matrix<V: SampleValue>(location:&str) -> Array2<V> {
 
     for (i,line_res) in count_array_lines.by_ref().enumerate() {
         let line = line_res.expect("Readline error");
-        if i%200==0{print!("{}:",i);}
+        // if i%200==0{print!("{}:",i);}
         for (j,string_value) in line.split_whitespace().enumerate() {
-            if i%200==0 && j%200 == 0 {print!(",{:?}", string_value.parse::<V>().unwrap_or(V::zero()) );}
+            // if i%200==0 && j%200 == 0 {print!(",{:?}", string_value.parse::<V>().unwrap_or(V::zero()) );}
             match string_value.parse::<V>() {
                 Ok(numeric_value) => {
                     array[[i,j]] = numeric_value;
@@ -627,9 +627,9 @@ fn read_matrix<V: SampleValue>(location:&str) -> Array2<V> {
                 }
             }
         }
-        if i%200==0{print!("\r");}
+        // if i%200==0{print!("\r");}
     };
-    print!("\n");
+    println!("Read matrix:{:?}",array.dim());
     // println!("Returning array: {:?}",array);
     array
 }

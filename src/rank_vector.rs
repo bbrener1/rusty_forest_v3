@@ -56,11 +56,15 @@ pub trait LinkedVector: Sized
         let target = self.arena()[target_key];
 
         // OPTIONAL INTEGRITY CODE, CHECK SPEED IMPACT
-        assert!({
-            let previous = self.arena()[target.previous];
-            let next = self.arena()[target.next];
-            previous.next == target.key && next.previous == target.key
-        });
+        let previous = self.arena()[target.previous];
+        let next = self.arena()[target.next];
+        if !(previous.next == target.key && next.previous == target.key) {
+            println!("Double pop!");
+            println!("{:?}",previous);
+            println!("{:?}",target);
+            println!("{:?}",next);
+            panic!();
+        }
 
         self.link_nodes(target.previous, target.next);
 
