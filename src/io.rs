@@ -112,6 +112,7 @@ where
     pub output_feature_subsample: usize,
 
     pub braid_thickness: usize,
+    pub smoothing:bool,
 
     pub prediction_mode: PredictionMode,
     pub averaging_mode: AveragingMode,
@@ -168,6 +169,9 @@ pub fn read<V:SampleValue,T: Iterator<Item = String>>(args: &mut T) -> Parameter
                 arg_struct.input_array = single_array.clone();
                 arg_struct.output_count_array_file = single_count_array_file;
                 arg_struct.output_array = single_array;
+            },
+            "-smoothing" | "-smooth" => {
+                arg_struct.smoothing = true;
             },
             "-ic" | "-input_counts" | "-input" => {
                 arg_struct.input_array = Some(read_matrix(&args.next().expect("Error parsing input count location!")));
@@ -330,6 +334,7 @@ impl<V: SampleValue> ParameterBook<V> {
             output_feature_subsample: 1,
 
             braid_thickness: 3,
+            smoothing:false,
 
             prediction_mode: PredictionMode::Truncate,
             averaging_mode: AveragingMode::Arithmetic,

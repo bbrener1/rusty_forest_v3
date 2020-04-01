@@ -36,7 +36,7 @@ pub fn split<V:SampleValue>(input:&Array2<V>,output:&Array2<f64>,sfr:f64) -> Opt
             for (j,index) in draw_order.iter().rev().enumerate() {
                 rv_r.pop(*index);
                 let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
-                dispersions[draw_order.len() - j - 1] += rv_r.dispersion() * regularization;
+                dispersions[ss_len - j - 1] += rv_r.dispersion() * regularization;
             }
         }
         let minimum = dispersions.into_iter().argmin_v().map(|(local_index,dispersion)| (i,draw_order[local_index],dispersion));
