@@ -1,0 +1,201 @@
+<!-- Template for cluster summary -->
+<head>
+  <style>
+    * {
+      box-sizing:border-box;
+    }
+    h1,h2 {
+      /* background-color:#e6ffe6; */
+      text-align:center;
+    }
+    body {
+      font-family:Helvetica,sans-serif;
+    }
+    .panel {
+      margin:1%;
+      padding:1%;
+      box-sizing:border-box;
+      border-left:5px solid green;
+      box-shadow: 2px 2px 5px gray;
+    }
+    .header {
+      text-align:center;
+      width: 98%;
+    }
+    .feature_container {
+      display:inline-grid;
+      float:left;
+      width:73%;
+      grid-template-columns: auto auto;
+    }
+    .feature_frame {
+      box-sizing:border-box;
+      padding:2%;
+      width:100%;
+      height:100%;
+    }
+    table {
+      width:100%;
+    }
+    #sister_panel {
+      display:block;
+      float:left;
+      width:73%;
+    }
+    #sample_panel {
+      display:none;
+      float:left;
+      width:73%;
+    }
+    .sister_score {
+      display:block;
+      width:80%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .sample_score {
+      display:block;
+      width:80%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #switch_score_panel {
+      float:right;
+      width:23%;
+    }
+    #switch_feature_panel {
+      float:right;
+      width:23%;
+    }
+    .summary_button {
+      font-size:1.3vw;
+      width:100%;
+      margin:1%;
+    }
+    .relatives {
+      float:left;
+      width:23%;
+    }
+    .relative {
+      padding-left:10%;
+    }
+    .navigation {
+      float:left;
+      width:23%;
+    }
+
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+  <!-- <script src="jquery.min.js"></script> -->
+  <script>
+  // window.onload = insertElements();
+  $(document).ready(function(){
+    // console.log($("#json_string"));
+    // console.log($("#json_string")[0]);
+    $("#clusterHeader").append(attributes.clusterName);
+    $("#parentUpregulatedFeatures").append(attributes.parentUpregulatedHtml);
+    $("#parentDownregulatedFeatures").append(attributes.parentDownregulatedHtml);
+    $("#absoluteUpregulatedFeatures").append(attributes.absoluteUpregulatedHtml);
+    $("#absoluteDownregulatedFeatures").append(attributes.absoluteDownregulatedHtml);
+    $("#sisterUpregulatedFeatures").append(attributes.sisterUpregulatedHtml);
+    $("#sisterDownregulatedFeatures").append(attributes.sisterDownregulatedHtml);
+    $("#childListing").append(attributes.children)
+    $("#siblingListing").append(attributes.siblings)
+    $("#parent").append(attributes.parent)
+    console.log(attributes);
+
+  })
+  function sisterScore(){
+    document.getElementById("sister_panel").style.display = "block";
+    document.getElementById("sample_panel").style.display = "none";
+  }
+  function sampleScore(){
+    document.getElementById("sister_panel").style.display = "none";
+    document.getElementById("sample_panel").style.display = "block";
+  }
+  function featuresVsParent(){
+    document.getElementById("changed_vs_parent").style.display = "grid";
+    document.getElementById("changed_vs_sister").style.display = "none";
+    document.getElementById("changed_vs_all").style.display = "none";
+  }
+  function featuresVsAll(){
+    document.getElementById("changed_vs_parent").style.display = "none";
+    document.getElementById("changed_vs_sister").style.display = "none";
+    document.getElementById("changed_vs_all").style.display = "grid";
+  }
+  function featuresVsSister(){
+    document.getElementById("changed_vs_parent").style.display = "none";
+    document.getElementById("changed_vs_sister").style.display = "grid";
+    document.getElementById("changed_vs_all").style.display = "none";
+  }
+  </script>
+</head>
+<body>
+  <h1 id="clusterHeader" class="header panel" >Split Cluster </h1>
+  <div id="changed_vs_parent" class="feature_container panel" style="display:none">
+    <div>
+      <h2> Upregulated Features (vs Parent) </h2>
+      <div id="parentUpregulatedFeatures" class="feature_frame"></div>
+    </div>
+    <div>
+      <h2> Downregulated Features (vs Parent) </h2>
+      <div id="parentDownregulatedFeatures" class="feature_frame"></div>
+    </div>
+  </div>
+  <div id="changed_vs_all" class="feature_container panel" style="display:none">
+    <div>
+      <h2> Upregulated Features (vs All) </h2>
+      <div id="absoluteUpregulatedFeatures" class="feature_frame"></div>
+    </div>
+    <div>
+      <h2> Downregulated Features (vs All) </h2>
+      <div id="absoluteDownregulatedFeatures" class="feature_frame"></div>
+    </div>
+  </div>
+  <div id="changed_vs_sister" class="feature_container panel">
+    <div>
+      <h2> Upregulated Features (vs Sisters) </h2>
+      <div id="sisterUpregulatedFeatures" class="feature_frame"></div>
+    </div>
+    <div>
+      <h2> Downregulated Features (vs Sisters) </h2>
+      <div id="sisterDownregulatedFeatures" class="feature_frame"></div>
+    </div>
+  </div>
+  <div id="switch_feature_panel" class="panel">
+    <h2> Switch Feature Display </h2>
+    <button class="summary_button" onclick="featuresVsAll()"> Change Vs All </button>
+    <button class="summary_button" onclick="featuresVsParent()"> Change Vs Parent </button>
+    <button class="summary_button" onclick="featuresVsSister()"> Change Vs Sister </button>
+  </div>
+
+  <div id="sister_panel" class="panel">
+    <h2 style="text-align:center;" class="score_header"> Sister Scores </h2>
+    <img id="sister_score" class="sister_score" src="sister_map.png" />
+  </div>
+  <div id="sample_panel" class="panel">
+    <h2 style="text-align:center;" class="score_header"> Sample Scores </h2>
+    <img id="sample_score" class="sample_score" src = "score_map.png"/>
+  </div>
+
+
+  <div id="switch_score_panel" class="panel">
+    <h2> Switch Score Display </h2>
+    <button class="summary_button" onclick="sampleScore()"> Sample Scores </button>
+    <button class="summary_button" onclick="sisterScore()"> Sister Scores </button>
+  </div>
+
+  <div class="relatives panel">
+    <h2> Relatives </h2>
+    <div>
+      <h3> Parent </h3>
+      <div id="parent" class="relative"></div>
+      <h3>Children</h3>
+      <div id="childListing" class="relative"></div>
+      <h3> Siblings </h3>
+      <div id="siblingListing" class="relative"></div>
+      <a href="../tree_template.html"><h3> Return To Tree View </h3></a>
+    </div>
+  </div>
+
+</body>
