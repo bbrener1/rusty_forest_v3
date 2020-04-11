@@ -77,6 +77,43 @@ pub trait ComputeNode<'a>: Node<'a>
 
         let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample).t().to_owned();
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
+
+        let (best_feature_index,best_sample_index) = split(&input_intermediate,&output_intermediate,self.parameters().split_fraction_regularization)?;
+        let (best_feature,best_sample) = (input_feature_subsample[best_feature_index].clone(),sample_subsample[best_sample_index].clone());
+        // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
+
+        let (left_filter,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
+
+        // let left_oob = left_filter.filter_samples(&out_bag);
+        // let right_oob = right_filter.filter_samples(&out_bag);
+
+        if let (Some(left_child),Some(right_child)) = (self.derive(left_filter),self.derive(right_filter)) {
+            self.mut_children().push(left_child);
+            self.mut_children().push(right_child);
+
+            for child in self.mut_children() {
+                child.reduced_split(depth+1);
+            }
+
+            Some(self)
+        }
+        else { Some(self) }
+    }
+
+    fn reduced_split(&mut self,depth:usize) -> Option<&mut Self> {
+        use num_traits::{NumCast};
+
+        if depth > self.parameters().depth_cutoff || self.samples().len() < self.parameters().leaf_size_cutoff {
+            return None
+        }
+
+        let input_feature_subsample: Vec<Self::InputFeature> = self.forest().subsample_input_features();
+        let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().subsample_output_features();
+        let (in_bag,out_bag) = self.sample_bags();
+        let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
+
+        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample).t().to_owned();
+        let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
         let (mut reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_n_projections(self.parameters().braid_thickness);
 
         reduced_output /= &output_scales;
@@ -95,7 +132,7 @@ pub trait ComputeNode<'a>: Node<'a>
             self.mut_children().push(right_child);
 
             for child in self.mut_children() {
-                child.split(depth+1);
+                child.reduced_split(depth+1);
             }
 
             Some(self)
@@ -103,53 +140,7 @@ pub trait ComputeNode<'a>: Node<'a>
         else { Some(self) }
 
     }
-    //
-    //
-    // fn smooth_split(&mut self,depth:usize) -> Option<&mut Self> {
-    //     use num_traits::{NumCast};
-    //
-    //     if depth > self.parameters().depth_cutoff || self.samples().len() < self.parameters().leaf_size_cutoff {
-    //         return None
-    //     }
-    //
-    //     let input_feature_subsample: Vec<Self::InputFeature> = self.forest().subsample_input_features();
-    //     let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().subsample_output_features();
-    //     let (in_bag,out_bag) = self.sample_bags();
-    //     let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
-    //
-    //     let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
-    //     let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
-    //     let (mut reduced_input,input_scores,input_means,input_scales) = Projector::from(input_intermediate).calculate_n_projections(self.parameters().braid_thickness);
-    //     let (mut reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_n_projections(self.parameters().braid_thickness);
-    //
-    //     reduced_input /= &input_scales;
-    //     reduced_output /= &output_scales;
-    //
-    //     let smoothed_input = reduced_input.t().dot(&input_scores);
-    //
-    //     let (best_feature_index,best_sample_index) = split(&smoothed_input,&reduced_output,self.parameters().split_fraction_regularization)?;
-    //     let (best_feature,best_sample) = (input_feature_subsample[best_feature_index].clone(),sample_subsample[best_sample_index].clone());
-    //
-    //     // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
-    //
-    //     let (left_filter,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
-    //
-    //     // let left_oob = left_filter.filter_samples(&out_bag);
-    //     // let right_oob = right_filter.filter_samples(&out_bag);
-    //
-    //     if let (Some(left_child),Some(right_child)) = (self.derive(left_filter),self.derive(right_filter)) {
-    //         self.mut_children().push(left_child);
-    //         self.mut_children().push(right_child);
-    //
-    //         for child in self.mut_children() {
-    //             child.smooth_split(depth+1);
-    //         }
-    //
-    //         Some(self)
-    //     }
-    //     else { Some(self) }
-    //
-    // }
+
 
     fn double_reduce(&mut self,depth:usize) -> Option<&mut Self> {
         use num_traits::{NumCast};

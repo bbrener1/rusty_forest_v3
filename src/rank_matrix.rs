@@ -4,13 +4,14 @@ use crate::{SampleKey,SampleValue,DrawOrder};
 use crate::rank_vector::MedianArray;
 use crate::valsort;
 use crate::ArgMinMax;
+use num_traits::NumCast;
 
-pub fn split<V:SampleValue>(input:&Array2<V>,output:&Array2<f64>,sfr:f64) -> Option<(usize,usize)> {
+pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>,sfr:f64) -> Option<(usize,usize)> {
 
-    let mut output_vectors: Vec<MedianArray<f64>> = vec![];
+    let mut output_vectors: Vec<MedianArray<V2>> = vec![];
     for row in output.axis_iter(Axis(0)) {
         let valsorted = valsort(row.iter().cloned());
-        output_vectors.push(MedianArray::link(&valsorted));
+        output_vectors.push(MedianArray::<V2>::link(&valsorted));
         // println!("Output vector:{:?}",output_vectors.last().unwrap());
     }
 
@@ -24,19 +25,19 @@ pub fn split<V:SampleValue>(input:&Array2<V>,output:&Array2<f64>,sfr:f64) -> Opt
     let ss_len = output.dim().1;
 
     for (i,draw_order) in draw_orders.iter().enumerate() {
-        let mut dispersions = vec![0.;draw_order.len()];
+        let mut dispersions: Vec<f64> = vec![0.;draw_order.len()];
         for (k,rv) in output_vectors.iter().enumerate() {
             let mut rv_f = rv.clone();
             for (j,index) in draw_order.iter().enumerate() {
                 rv_f.pop(*index);
                 let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
-                dispersions[j] += rv_f.dispersion()
+                dispersions[j] +=  rv_f.dispersion().to_f64().expect("cast error") * regularization;
             }
             let mut rv_r = rv.clone();
             for (j,index) in draw_order.iter().rev().enumerate() {
                 rv_r.pop(*index);
                 let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
-                dispersions[ss_len - j - 1] += rv_r.dispersion() * regularization;
+                dispersions[ss_len - j - 1] += rv_r.dispersion().to_f64().expect("cast error") * regularization;
             }
         }
         let minimum = dispersions.into_iter().argmin_v().map(|(local_index,dispersion)| (i,draw_order[local_index],dispersion));
