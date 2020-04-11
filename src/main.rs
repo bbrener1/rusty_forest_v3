@@ -69,10 +69,10 @@ fn main() {
             // if let Some(mut sidxn) = root.double_reduce(0).map(|fast_n| fast_n.to_sidxn()) {
             //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
             // }
-            if let Some(mut sidxn) = root.split(0).map(|fast_n| fast_n.to_sidxn()) {
+            if let Some(mut sidxn) = root.reduced_split(0).map(|fast_n| fast_n.to_sidxn()) {
                 sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
             }
-            // if let Some(mut sidxn) = root.smooth_split(0).map(|fast_n| fast_n.to_sidxn()) {
+            // if let Some(mut sidxn) = root.split(0).map(|fast_n| fast_n.to_sidxn()) {
             //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
             // }
 

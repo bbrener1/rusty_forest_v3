@@ -92,7 +92,7 @@ pub trait ComputeNode<'a>: Node<'a>
             self.mut_children().push(right_child);
 
             for child in self.mut_children() {
-                child.reduced_split(depth+1);
+                child.split(depth+1);
             }
 
             Some(self)
