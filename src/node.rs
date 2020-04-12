@@ -75,7 +75,7 @@ pub trait ComputeNode<'a>: Node<'a>
         let (in_bag,out_bag) = self.sample_bags();
         let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
 
-        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample).t().to_owned();
+        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
 
         let (best_feature_index,best_sample_index) = split(&input_intermediate,&output_intermediate,self.parameters().split_fraction_regularization)?;
@@ -88,6 +88,12 @@ pub trait ComputeNode<'a>: Node<'a>
         // let right_oob = right_filter.filter_samples(&out_bag);
 
         if let (Some(left_child),Some(right_child)) = (self.derive(left_filter),self.derive(right_filter)) {
+
+            // println!("D:{:?}",depth);
+            // println!("L:{:?}",left_child.samples().len());
+            // println!("R:{:?}",right_child.samples().len());
+
+
             self.mut_children().push(left_child);
             self.mut_children().push(right_child);
 
@@ -112,13 +118,15 @@ pub trait ComputeNode<'a>: Node<'a>
         let (in_bag,out_bag) = self.sample_bags();
         let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
 
-        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample).t().to_owned();
+        let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
         let (mut reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_n_projections(self.parameters().braid_thickness);
 
-        reduced_output /= &output_scales;
+        if self.parameters().scaling {
+            reduced_output /= &output_scales;
+        }
 
-        let (best_feature_index,best_sample_index) = split(&input_intermediate,&reduced_output,self.parameters().split_fraction_regularization)?;
+        let (best_feature_index,best_sample_index) = split(&input_intermediate,&reduced_output.t().to_owned(),self.parameters().split_fraction_regularization)?;
         let (best_feature,best_sample) = (input_feature_subsample[best_feature_index].clone(),sample_subsample[best_sample_index].clone());
         // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
 

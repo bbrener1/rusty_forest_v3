@@ -113,6 +113,7 @@ where
 
     pub braid_thickness: usize,
     pub smoothing:bool,
+    pub scaling:bool,
 
     pub prediction_mode: PredictionMode,
     pub averaging_mode: AveragingMode,
@@ -173,6 +174,10 @@ pub fn read<V:SampleValue,T: Iterator<Item = String>>(args: &mut T) -> Parameter
             "-smoothing" | "-smooth" => {
                 arg_struct.smoothing = true;
             },
+            "-scale" | "-scaling" => {
+                arg_struct.scaling = true;
+            },
+
             "-ic" | "-input_counts" | "-input" => {
                 arg_struct.input_array = Some(read_matrix(&args.next().expect("Error parsing input count location!")));
             }
@@ -335,6 +340,7 @@ impl<V: SampleValue> ParameterBook<V> {
 
             braid_thickness: 3,
             smoothing:false,
+            scaling:false,
 
             prediction_mode: PredictionMode::Truncate,
             averaging_mode: AveragingMode::Arithmetic,

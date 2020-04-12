@@ -27,7 +27,7 @@ pub fn calculate_projection<T:SampleValue>(input:Array2<T>) -> (Array1<f64>,Arra
 }
 
 fn center(mut input:Array2<f64>) -> Array2<f64> {
-    let means = input.mean_axis(Axis(0));
+    let means = input.mean_axis(Axis(0)).unwrap();
     for mut row in input.axis_iter_mut(Axis(0)) {
         row -= &means;
     }
@@ -49,7 +49,7 @@ impl Projector {
     pub fn from<T:SampleValue>(input:Array2<T>) -> Projector {
         let smallnum = 10e-4 ;
         let mut converted:Array2<f64> = input.map(|v| T::into(*v));
-        let means = converted.mean_axis(Axis(0));
+        let means = converted.mean_axis(Axis(0)).unwrap();
         let scale_factors = converted.sum_axis(Axis(1));
         converted = center(converted);
         let loadings = Array::ones(converted.dim().0);

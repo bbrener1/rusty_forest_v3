@@ -5,45 +5,65 @@ use crate::rank_vector::MedianArray;
 use crate::valsort;
 use crate::ArgMinMax;
 use num_traits::NumCast;
+use rayon::prelude::*;
 
 pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>,sfr:f64) -> Option<(usize,usize)> {
 
-    let mut output_vectors: Vec<MedianArray<V2>> = vec![];
-    for row in output.axis_iter(Axis(0)) {
-        let valsorted = valsort(row.iter().cloned());
-        output_vectors.push(MedianArray::<V2>::link(&valsorted));
-        // println!("Output vector:{:?}",output_vectors.last().unwrap());
-    }
+    // println!("Splitting {:?},{:?}", input.dim(),output.dim());
 
-    let mut draw_orders: Vec<Vec<usize>> = vec![];
-    for row in input.axis_iter(Axis(0)) {
-        draw_orders.push(valsort(row.iter()).into_iter().map(|(i,_)| i).collect());
-        // println!("Draw order:{:?}",draw_orders.last().unwrap().len());
-    }
+    // println!("Sorting outputs");
 
-    let mut minima = vec![];
-    let ss_len = output.dim().1;
+    let mut output_vectors: Vec<MedianArray<V2>> =
+        output.axis_iter(Axis(1))
+        .into_par_iter()
+        .map(|column| {
+            let valsorted = valsort(column.iter().cloned());
+            MedianArray::<V2>::link(&valsorted)
+            // println!("O:{:?}",output_vectors.last().unwrap());
+        })
+        .collect();
 
-    for (i,draw_order) in draw_orders.iter().enumerate() {
-        let mut dispersions: Vec<f64> = vec![0.;draw_order.len()];
-        for (k,rv) in output_vectors.iter().enumerate() {
-            let mut rv_f = rv.clone();
-            for (j,index) in draw_order.iter().enumerate() {
-                rv_f.pop(*index);
-                let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
-                dispersions[j] +=  rv_f.dispersion().to_f64().expect("cast error") * regularization;
+    // println!("Sorting inputs");
+
+    let mut draw_orders: Vec<Vec<usize>> =
+        input.axis_iter(Axis(1))
+        .into_par_iter()
+        .map(|column|
+        {
+            valsort(column.iter()).into_iter().map(|(i,_)| i).collect()
+        })
+        .collect();
+
+    // println!("Splitting");
+
+    let minima: Vec<Option<(usize,usize,f64)>> = draw_orders
+        // .into_iter()
+        .into_par_iter()
+        .enumerate()
+        .map(|(i,draw_order)| {
+            let mut dispersions: Vec<f64> = vec![0.;draw_order.len()];
+            let ss_len = draw_order.len();
+            for (k,rv) in output_vectors.iter().enumerate() {
+                let mut rv_f = rv.clone();
+                for (j,index) in draw_order.iter().enumerate() {
+                    rv_f.pop(*index);
+                    let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
+                    dispersions[j] +=  rv_f.dispersion().to_f64().expect("cast error") * regularization;
+                }
+                let mut rv_r = rv.clone();
+                for (j,index) in draw_order.iter().rev().enumerate() {
+                    rv_r.pop(*index);
+                    let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
+                    dispersions[ss_len - j - 1] += rv_r.dispersion().to_f64().expect("cast error") * regularization;
+                }
             }
-            let mut rv_r = rv.clone();
-            for (j,index) in draw_order.iter().rev().enumerate() {
-                rv_r.pop(*index);
-                let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
-                dispersions[ss_len - j - 1] += rv_r.dispersion().to_f64().expect("cast error") * regularization;
-            }
-        }
-        let minimum = dispersions.into_iter().argmin_v().map(|(local_index,dispersion)| (i,draw_order[local_index],dispersion));
-        minima.push(minimum);
-    }
+            dispersions.into_iter().argmin_v().map(|(local_index,dispersion)| (i,draw_order[local_index],dispersion))
+        })
+        .collect();
     let (feature,sample,dispersion) = minima.iter().flat_map(|m| m).min_by(|&a,&b| (a.2).partial_cmp(&b.2).unwrap())?;
+
+    // println!("Split successful");
+    // println!("{},{}",feature,sample);
 
     Some((*feature,*sample))
 }
