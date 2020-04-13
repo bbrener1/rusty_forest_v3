@@ -307,10 +307,12 @@ class Node:
 
         # Obtains all leaves belonging to this node
         if depth is None:
-            depth = self.level + 1
+            depth_limit = self.level + 1
+        else:
+            depth_limit = depth
 
         leaves = []
-        if len(self.children) < 1 or self.level >= depth:
+        if len(self.children) < 1 or self.level >= depth_limit :
             leaves.append(self)
         else:
             for child in self.children:
@@ -1550,7 +1552,7 @@ class Forest:
         self.sample_cluster_encoding = one_hot
 
 
-    def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
+    def cluster_samples_simple(self,override=False,pca=None,*args,**kwargs):
 
         if hasattr(self,'sample_labels') and override:
             self.reset_sample_clusters()
@@ -1561,7 +1563,7 @@ class Forest:
             print("Clustering has already been done")
             return self.sample_labels
         else:
-            if pca is not False:
+            if pca is not None:
                 self.set_sample_labels(sdg.fit_predict(PCA(n_components=pca).fit_transform(counts),*args,**kwargs))
             else:
                 self.set_sample_labels(sdg.fit_predict(counts,*args,**kwargs))
@@ -1569,7 +1571,7 @@ class Forest:
         return self.sample_labels
 
 
-    def cluster_samples_encoding(self,override=False,pca=False,depth_limit=None,depth=None,*args,**kwargs):
+    def cluster_samples_encoding(self,override=False,pca=None,depth_limit=None,depth=None,*args,**kwargs):
 
         # Todo: remove this hack
         if depth is not None:
@@ -1582,7 +1584,7 @@ class Forest:
 
         encoding = self.node_sample_encoding(leaves)
 
-        if pca is not False:
+        if pca is not None:
             encoding = PCA(n_components=pca).fit_transform(encoding)
 
         if hasattr(self,'sample_clusters') and not override:
@@ -1614,13 +1616,17 @@ class Forest:
         if hasattr(self,'sample_labels') and override:
             self.reset_sample_clusters()
 
-        leaves = self.leaves()
+        leaves = [n for n in self.nodes() if hasattr(n,'leaf_cluster')]
         encoding = self.node_sample_encoding(leaves)
         leaf_clusters = np.array([l.leaf_cluster for l in leaves])
 
-        sample_labels = [np.mode(leaf_clusters[mask])[0][0] for mask in encoding.T]
+        print(f"encoding dimensions: {encoding.shape}")
 
-        self.set_sample_labels(sample_labels)
+        from scipy.stats import mode
+
+        sample_labels = [mode(leaf_clusters[mask])[0][0] for mask in encoding]
+
+        self.set_sample_labels(np.array(sample_labels).astype(dtype=int))
 
         return self.sample_labels
 
@@ -1643,10 +1649,13 @@ class Forest:
             leaf.leaf_cluster = label
 
 
-    def cluster_leaves_samples(self,override=False,*args,**kwargs):
+    def cluster_leaves_samples(self,override=False,pca=None,depth=None,*args,**kwargs):
 
-        leaves = self.leaves()
+        leaves = self.leaves(depth=depth)
         encoding = self.node_sample_encoding(leaves).T
+
+        if pca is not None:
+            encoding = PCA(n_components=pca).fit_transform(encoding)
 
         if hasattr(self,'leaf_clusters') and not override:
             print("Clustering has already been done")

@@ -167,8 +167,11 @@ pub trait ComputeNode<'a>: Node<'a>
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
         let (mut reduced_input,input_scores,input_means,input_scales) = Projector::from(input_intermediate).calculate_n_projections(1);
         let (mut reduced_output,output_scores,output_means,output_scales) = Projector::from(output_intermediate).calculate_n_projections(self.parameters().braid_thickness);
-        reduced_input /= &input_scales;
-        reduced_output /= &output_scales;
+
+        if self.parameters().scaling {
+            reduced_input /= &input_scales;
+            reduced_output /= &output_scales;
+        }
 
         // use crate::logistic;
 
