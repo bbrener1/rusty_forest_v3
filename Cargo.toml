@@ -19,4 +19,4 @@ rayon = "1"
 
 num-traits = "0.2"
 
-ndarray = "0.12"
+ndarray = { version = "0.13", features = ['rayon'] }
