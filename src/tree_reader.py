@@ -74,7 +74,7 @@ class Node:
         self.parent = parent
         self.lr = lr
         self.level = level
-        self.filter = node_json['filter']
+        self.filter = Filter(node_json['filter'],self)
         self.samples = np.array(node_json['samples'])
         self.weights = np.ones(len(self.forest.output_features))
         self.children = []
@@ -495,32 +495,16 @@ class Node:
         # Predictive method
         # Finds the leaves that a given sample belongs to in this (sub) tree
 
-        if hasattr(self,"braid"):
-            if self.braid is not None:
-                braid_score = self.braid.score_sample(sample)
-                # print("Braid prediction!")
-                # print(braid_score)
-                # print(self.braid.compound_split)
-                # print("Trying comparison")
-                # print(braid_score <= self.braid.compound_split)
-                if braid_score <= self.braid.compound_split:
-                    # print("Descending left")
-                    return self.children[0].sample_leaves(sample)
-                else:
-                    # print("Descending right")
-                    return self.children[1].sample_leaves(sample)
-            else:
-                return [self,]
-        elif self.split is not None:
-            if self.split['feature']['name'] in sample:
-                if sample[self.split['feature']['name']] <= self.split['value']:
-                    return self.children[0].sample_leaves(sample)
-                else:
-                    return self.children[1].sample_leaves(sample)
-            else:
-                return []
+        leaves = []
+
+        if len(self.children) > 0:
+            for child in children:
+                if child.filter.filter(sample):
+                    leaves.extend(child.sample_leaves(sample))
         else:
-            return [self,]
+            leaves.append(self)
+
+        return leaves
 
     def sample_nodes(self,sample):
 
@@ -530,21 +514,10 @@ class Node:
 
         nodes = [self,]
 
-        if self.braid is not None:
-            braid_score = self.braid.score_sample(sample)
-            try:
-                if braid_score <= self.braid.compound_split:
-                    nodes.extend(self.children[0].sample_nodes(sample))
-                else:
-                    nodes.extend(self.children[1].sample_nodes(sample))
-            except:
-                raise
-        elif self.split is not None:
-            if self.split['feature']['name'] in sample:
-                if sample[self.split['feature']['name']] <= self.split['value']:
-                    nodes.extend(self.children[0].sample_descent(sample))
-                else:
-                    nodes.extend(self.children[1].sample_descent(sample))
+        if len(self.children) > 0:
+            for child in children:
+                if child.filter.filter(sample):
+                    leaves.extend(child.sample_nodes(sample))
 
         return nodes
 
@@ -683,58 +656,38 @@ class Node:
     #     return child_masks
 
 
-class Braid:
+class Filter:
 
-    def __init__(self,braid_json,node):
+    def __init__(self,filter_json,node):
         try:
             self.node = node
-            self.features = np.array([f['name'] for f in braid_json['features']])
-            self.feature_splits = braid_json['feature_splits']
-            self.split_flips = braid_json['split_flips']
-            # self.samples = np.array([s['name'] for s in node_json['samples']])
-            self.samples = self.node.samples
-            self.compound_split = braid_json['compound_split']
-            self.compound_values = braid_json['compound_values']
+            self.reduction = filter_json['reduction']
+            self.split = braid_json['split']
+            self.orientation = braid_json['orientation']
         except:
             print(braid_json)
             raise Exception
 
-    def braid_matrix(mtx):
+    def filter(self,sample):
+        sample_score = self.reduction.score_sample(sample)
+        return sample_score > self.split and orientation:
 
-        from scipy.stats import rankdata
 
-        ranked = mtx.copy()
 
-        for i in range(mtx.shape[1]):
-            ranked[:,i] = rankdata(ranked[:,i],method='min')
 
-        return np.exp(np.mean(np.log(ranked),axis=1))
+class Reduction:
 
-    def braid_scores(self):
-        scores = np.zeros(len(self.node.forest.samples))
-        sd = self.truth_dictionary.sample_dictionary
-        for score,sample in zip(self.compound_values,self.samples):
-            scores[sd[sample]] = score
-
-        return scores
+    def __init__(self,reduction_json):
+        self.features = reduction_json['features']
+        self.scores = reduction_json['scores']
+        self.means = reduction_json['means']
 
     def score_sample(self,sample):
-        score = 0
-        for split,flip in zip(self.feature_splits,self.split_flips):
-            try:
-                if flip:
-                    if sample[split['feature']['name']] <= split['value']:
-                        score += 1
-                    else:
-                        score -= 1
-                else:
-                    if sample[split['feature']['name']] <= split['value']:
-                        score -= 1
-                    else:
-                        score += 1
-            except:
-                continue
-        return score
+        compound_score = 0
+        for feature,feature_score,feature_mean in zip(self.features,self.scores,self.means):
+            compound_score += (sample[feature] - feature_mean) * feature_score
+        return compound_score
+
 
 class Tree:
 
