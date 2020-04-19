@@ -1461,15 +1461,15 @@ class Forest:
 
 
     def predict_vector_leaves(self,vector,features=None):
-        if features is None:
-            features = self.input_features
-        sample = {feature:value for feature,value in zip(features,vector)}
+        # if features is None:
+            # features = self.input_features
+        sample = {feature:value for feature,value in zip(range(len(vector)),vector)}
         return self.predict_sample_leaves(sample)
 
     def predict_vector_nodes(self,vector,features=None):
-        if features is None:
-            features = self.input_features
-        sample = {feature:value for feature,value in zip(features,vector)}
+        # if features is None:
+        #     features = self.input_features
+        sample = {feature:value for feature,value in zip(range(len(vector)),vector)}
         return self.predict_sample_nodes(sample)
 
 
