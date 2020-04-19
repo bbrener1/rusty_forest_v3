@@ -516,7 +516,7 @@ class Node:
         if len(self.children) > 0:
             for child in self.children:
                 if child.filter.filter(sample):
-                    leaves.extend(child.sample_nodes(sample))
+                    nodes.extend(child.sample_nodes(sample))
 
         return nodes
 
@@ -688,6 +688,7 @@ class Reduction:
         compound_score = 0
         for feature,feature_score,feature_mean in zip(self.features,self.scores,self.means):
             compound_score += (sample[feature] - feature_mean) * feature_score
+        print(compound_score)
         return compound_score
 
 
