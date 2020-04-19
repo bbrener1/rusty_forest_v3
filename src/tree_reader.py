@@ -662,8 +662,8 @@ class Filter:
         try:
             self.node = node
             self.reduction = Reduction(filter_json['reduction'])
-            self.split = braid_json['split']
-            self.orientation = braid_json['orientation']
+            self.split = filter_json['split']
+            self.orientation = filter_json['orientation']
         except:
             print(filter_json)
             raise Exception
