@@ -499,7 +499,6 @@ class Node:
 
         for i,child in enumerate(self.children):
             if child.filter.filter(sample):
-                print(f"branch:{i}")
                 leaves.extend(child.sample_leaves(sample))
         if len(leaves) < 1:
             leaves.append(self)
@@ -671,7 +670,6 @@ class Filter:
 
     def filter(self,sample):
         sample_score = self.reduction.score_sample(sample)
-        print(f"Split:{self.split}")
         if self.orientation:
             return sample_score > self.split
         else:
@@ -691,7 +689,6 @@ class Reduction:
         compound_score = 0
         for feature,feature_score,feature_mean in zip(self.features,self.scores,self.means):
             compound_score += (sample[feature] - feature_mean) * feature_score
-        print(f"Compound:{compound_score}")
         return compound_score
 
 
