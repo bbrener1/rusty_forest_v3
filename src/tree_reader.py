@@ -497,8 +497,9 @@ class Node:
 
         leaves = []
 
-        for child in self.children:
+        for i,child in enumerate(self.children):
             if child.filter.filter(sample):
+                print(f"branch:{i}")
                 leaves.extend(child.sample_leaves(sample))
         if len(leaves) < 1:
             leaves.append(self)
@@ -672,10 +673,8 @@ class Filter:
         sample_score = self.reduction.score_sample(sample)
         print(f"Split:{self.split}")
         if self.orientation:
-            print("Right")
             return sample_score > self.split
         else:
-            print("Left")
             return sample_score <= self.split
 
 
