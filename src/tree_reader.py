@@ -661,11 +661,11 @@ class Filter:
     def __init__(self,filter_json,node):
         try:
             self.node = node
-            self.reduction = filter_json['reduction']
+            self.reduction = Reduction(filter_json['reduction'])
             self.split = braid_json['split']
             self.orientation = braid_json['orientation']
         except:
-            print(braid_json)
+            print(filter_json)
             raise Exception
 
     def filter(self,sample):
