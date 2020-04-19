@@ -498,7 +498,7 @@ class Node:
         leaves = []
 
         if len(self.children) > 0:
-            for child in children:
+            for child in self.children:
                 if child.filter.filter(sample):
                     leaves.extend(child.sample_leaves(sample))
         else:
@@ -515,7 +515,7 @@ class Node:
         nodes = [self,]
 
         if len(self.children) > 0:
-            for child in children:
+            for child in self.children:
                 if child.filter.filter(sample):
                     leaves.extend(child.sample_nodes(sample))
 
