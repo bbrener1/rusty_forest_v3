@@ -1435,7 +1435,8 @@ class Forest:
     def predict_matrix(self,matrix,features=None,weighted=True):
 
         if features is None:
-            features = self.input_features
+            # features = self.input_features
+            features = list(range(len(self.input_features)))
 
         predictions = np.zeros((len(matrix),len(self.output_features)))
 
