@@ -670,7 +670,7 @@ class Filter:
 
     def filter(self,sample):
         sample_score = self.reduction.score_sample(sample)
-        return sample_score > self.split and orientation:
+        return sample_score > self.split and orientation
 
 
 
