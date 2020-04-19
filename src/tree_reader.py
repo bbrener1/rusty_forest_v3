@@ -670,7 +670,7 @@ class Filter:
 
     def filter(self,sample):
         sample_score = self.reduction.score_sample(sample)
-        print(sample_score)
+        print(f"Split:{self.split}")
         if self.orientation:
             print("Right")
             return sample_score > self.split
@@ -692,7 +692,7 @@ class Reduction:
         compound_score = 0
         for feature,feature_score,feature_mean in zip(self.features,self.scores,self.means):
             compound_score += (sample[feature] - feature_mean) * feature_score
-        print(compound_score)
+        print(f"Compound:{compound_score}")
         return compound_score
 
 
