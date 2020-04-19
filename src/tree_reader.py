@@ -670,7 +670,10 @@ class Filter:
 
     def filter(self,sample):
         sample_score = self.reduction.score_sample(sample)
-        return sample_score > self.split and self.orientation
+        if self.orientation:
+            return sample_score > self.split
+        else:
+            return sample_score <= self.split
 
 
 
