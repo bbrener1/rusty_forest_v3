@@ -513,10 +513,11 @@ class Node:
 
         nodes = [self,]
 
-        if len(self.children) > 0:
-            for child in self.children:
-                if child.filter.filter(sample):
-                    nodes.extend(child.sample_nodes(sample))
+        for child in self.children:
+            if child.filter.filter(sample):
+                nodes.extend(child.sample_nodes(sample))
+
+        print(nodes)
 
         return nodes
 
@@ -669,9 +670,12 @@ class Filter:
 
     def filter(self,sample):
         sample_score = self.reduction.score_sample(sample)
+        print(sample_score)
         if self.orientation:
+            print("Right")
             return sample_score > self.split
         else:
+            print("Left")
             return sample_score <= self.split
 
 
