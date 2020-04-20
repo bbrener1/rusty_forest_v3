@@ -1064,7 +1064,8 @@ class Forest:
     def node_matrix(self,nodes):
         predictions = np.zeros((len(nodes),len(self.output_features)))
         for i,node in enumerate(nodes):
-            predictions[i] = node.medians()
+            predictions[i] = node.means()
+            # predictions[i] = node.medians()
         return predictions
 
     def weight_matrix(self,nodes):
