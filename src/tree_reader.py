@@ -497,7 +497,7 @@ class Node:
 
         leaves = []
 
-        for child in self.children:
+        for i,child in enumerate(self.children):
             if child.filter.filter(sample):
                 leaves.extend(child.sample_leaves(sample))
         if len(leaves) < 1:
@@ -670,12 +670,9 @@ class Filter:
 
     def filter(self,sample):
         sample_score = self.reduction.score_sample(sample)
-        print(sample_score)
         if self.orientation:
-            print("Right")
             return sample_score > self.split
         else:
-            print("Left")
             return sample_score <= self.split
 
 
@@ -692,7 +689,6 @@ class Reduction:
         compound_score = 0
         for feature,feature_score,feature_mean in zip(self.features,self.scores,self.means):
             compound_score += (sample[feature] - feature_mean) * feature_score
-        print(compound_score)
         return compound_score
 
 
@@ -1068,7 +1064,8 @@ class Forest:
     def node_matrix(self,nodes):
         predictions = np.zeros((len(nodes),len(self.output_features)))
         for i,node in enumerate(nodes):
-            predictions[i] = node.medians()
+            predictions[i] = node.means()
+            # predictions[i] = node.medians()
         return predictions
 
     def weight_matrix(self,nodes):
@@ -1439,7 +1436,8 @@ class Forest:
     def predict_matrix(self,matrix,features=None,weighted=True):
 
         if features is None:
-            features = self.input_features
+            # features = self.input_features
+            features = list(range(len(self.input_features)))
 
         predictions = np.zeros((len(matrix),len(self.output_features)))
 
