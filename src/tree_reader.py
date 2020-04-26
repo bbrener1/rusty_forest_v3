@@ -1624,10 +1624,10 @@ class Forest:
 
         return self.leaf_labels
 
-    def cluster_leaves_predictions(self,override=False,*args,**kwargs):
+    def cluster_leaves_predictions(self,override=False,mode='mean',*args,**kwargs):
 
         leaves = self.leaves()
-        predictions = self.node_representation(leaves,mode='median')
+        predictions = self.node_representation(leaves,mode=mode)
 
         if hasattr(self,'leaf_clusters') and not override:
             print("Clustering has already been done")
