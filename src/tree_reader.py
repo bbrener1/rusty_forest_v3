@@ -987,7 +987,10 @@ class Forest:
             encoding = self.node_sister_encoding(nodes).T
         elif mode == 'median' or mode == 'medians':
             print("Median reduction")
-            encoding = self.node_matrix(nodes)
+            encoding = self.median_matrix(nodes)
+        elif mode == 'mean' or mode == 'means':
+            print("Median reduction")
+            encoding = self.mean_matrix(nodes)
         elif mode == 'weights':
             print("Weight reduction")
             encoding = self.weight_matrix(nodes)
@@ -1061,11 +1064,16 @@ class Forest:
             gains[:,i] = node.additive_mean_gains()
         return gains
 
-    def node_matrix(self,nodes):
+    def mean_matrix(self,nodes):
         predictions = np.zeros((len(nodes),len(self.output_features)))
         for i,node in enumerate(nodes):
             predictions[i] = node.means()
-            # predictions[i] = node.medians()
+        return predictions
+
+    def median_matrix(self,nodes):
+        predictions = np.zeros((len(nodes),len(self.output_features)))
+        for i,node in enumerate(nodes):
+            predictions[i] = node.medians()
         return predictions
 
     def weight_matrix(self,nodes):
@@ -1386,7 +1394,7 @@ class Forest:
     def predict_sample(self,sample):
 
         leaves = self.predict_sample_leaves(sample)
-        consolidated_predictions = self.node_matrix(leaves)
+        consolidated_predictions = self.mean_matrix(leaves)
         return np.mean(consolidated_predictions,axis=0)
 
     def predict_sample_cluster(self,sample):
@@ -1426,7 +1434,7 @@ class Forest:
         return self.weighted_node_vector_prediction(leaves)
 
     def weighted_node_vector_prediction(self,nodes):
-        raw_predictions = self.node_matrix(nodes)
+        raw_predictions = self.mean_matrix(nodes)
         feature_weight_matrix = self.feature_weight_matrix(nodes)
 
         single_prediction = np.sum(raw_predictions * feature_weight_matrix,axis=0) / np.sum(feature_weight_matrix,axis=0)
@@ -1677,8 +1685,8 @@ class Forest:
 
         from sklearn.linear_model import LogisticRegression
 
-        n1_counts = self.node_matrix(nodes1)
-        n2_counts = self.node_matrix(nodes2)
+        n1_counts = self.mean_matrix(nodes1)
+        n2_counts = self.mean_matrix(nodes2)
 
         combined = np.concatenate([n1_counts,n2_counts],axis=0)
 
