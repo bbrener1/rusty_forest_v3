@@ -989,7 +989,7 @@ class Forest:
             print("Median reduction")
             encoding = self.median_matrix(nodes)
         elif mode == 'mean' or mode == 'means':
-            print("Median reduction")
+            print("Mean reduction")
             encoding = self.mean_matrix(nodes)
         elif mode == 'weights':
             print("Weight reduction")
