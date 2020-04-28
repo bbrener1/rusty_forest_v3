@@ -1007,6 +1007,10 @@ class Forest:
 
         return representation
 
+    def agglomerate_representation(representation,feature_metric='correlation',sample_metric='cosine'):
+        feature_sort = dendrogram(linkage(representation.T,metric=feature_metric,method='average'),no_plot=True)['leaves']
+        sample_sort = dendrogram(linkage(representation,metric=sample_metric,method='average'),no_plot=True)['leaves']
+        return representation[sample_sort].T[feature_sort].T
 
     def node_sister_encoding(self,nodes):
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=int)
