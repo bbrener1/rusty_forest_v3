@@ -3164,13 +3164,16 @@ class SampleCluster:
     def median_feature_values(self):
         return np.median(self.forest.output[self.samples],axis=0)
 
-    def increased_features(self,n=50,plot=True):
-        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
-        current_medians = self.median_feature_values()
+    def mean_feature_values(self):
+        return np.mean(self.forest.output[self.samples],axis=0)
 
-        difference = current_medians - initial_medians
+    def increased_features(self,n=50,plot=True):
+        initial_means = np.mean(self.forest.output)
+        current_means = self.mean_feature_values()
+
+        difference = current_means - initial_means
         feature_order = np.argsort(difference)
-        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_features = np.array(self.forest.output_features)[feature_order]
         ordered_difference = difference[feature_order]
 
         if plot:
@@ -3187,21 +3190,21 @@ class SampleCluster:
 
 
     def decreased_features(self,n=50,plot=True):
-        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
-        current_medians = self.median_feature_values()
+        initial_means = np.mean(self.forest.output)
+        current_means = self.mean_feature_values()
 
-        difference = current_medians - initial_medians
+        difference = current_means - initial_means
         feature_order = np.argsort(difference)
-        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_features = np.array(self.forest.output_features)[feature_order]
         ordered_difference = difference[feature_order]
 
         if plot:
-            plt.figure(figsize=(10,2))
+            plt.figure(figsize=(10,8))
             plt.title("Upregulated Genes")
             plt.scatter(np.arange(n),ordered_difference[:n])
             plt.xlim(0,n)
             plt.xlabel("Gene Symbol")
-            plt.ylabel("Frequency")
+            plt.ylabel("Increase (LogTPM)")
             plt.xticks(np.arange(n),ordered_features[:n],rotation=45,verticalalignment='top',horizontalalignment='right')
             plt.show()
 
