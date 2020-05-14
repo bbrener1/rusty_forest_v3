@@ -1589,12 +1589,21 @@ class Forest:
         leaves = [n for n in self.nodes() if hasattr(n,'leaf_cluster')]
         encoding = self.node_sample_encoding(leaves)
         leaf_clusters = np.array([l.leaf_cluster for l in leaves])
+        leaf_cluster_sizes = [np.sum(leaf_clusters == cluster) for cluster in range(len(set(leaf_clusters)))]
+
 
         print(f"encoding dimensions: {encoding.shape}")
 
-        from scipy.stats import mode
+        # from scipy.stats import mode
 
-        sample_labels = [mode(leaf_clusters[mask])[0][0] for mask in encoding]
+        sample_labels = []
+
+        for leaf_mask in encoding:
+            leaf_cluster_counts = np.arange([leaf_clusters[mask] == lc for lc in range(len(leaf_cluster_sizes))])
+            odds = leaf_cluster_counts / leaf_cluster_sizes
+            sample_labels.append(np.argmax(odds))
+
+        # sample_labels = [mode(leaf_clusters[mask])[0][0] for mask in encoding]
 
         self.set_sample_labels(np.array(sample_labels).astype(dtype=int))
 
@@ -1765,7 +1774,8 @@ class Forest:
             sister_distance = squareform(pdist(sister_representation,metric=metric))
             # parent_distance = squareform(pdist(parent_representation,metric=metric))
             # aggregate = np.sqrt(own_distance * sister_distance)
-            aggregate = (own_distance + sister_distance) / 2
+            # aggregate = (own_distance + sister_distance) / 2
+
             # aggregate = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
         else:
