@@ -1589,7 +1589,7 @@ class Forest:
         leaves = [n for n in self.nodes() if hasattr(n,'leaf_cluster')]
         encoding = self.node_sample_encoding(leaves)
         leaf_clusters = np.array([l.leaf_cluster for l in leaves])
-        leaf_cluster_sizes = [np.sum(leaf_clusters == cluster) for cluster in range(len(set(leaf_clusters)))]
+        leaf_cluster_sizes = np.array([np.sum(leaf_clusters == cluster) for cluster in range(len(set(leaf_clusters)))])
 
 
         print(f"encoding dimensions: {encoding.shape}")
@@ -1599,7 +1599,7 @@ class Forest:
         sample_labels = []
 
         for leaf_mask in encoding:
-            leaf_cluster_counts = np.array([leaf_clusters[leaf_mask] == lc for lc in range(len(leaf_cluster_sizes))])
+            leaf_cluster_counts = np.array([np.sum(leaf_clusters[leaf_mask] == lc) for lc in range(len(leaf_cluster_sizes))])
             odds = leaf_cluster_counts / leaf_cluster_sizes
             sample_labels.append(np.argmax(odds))
 
