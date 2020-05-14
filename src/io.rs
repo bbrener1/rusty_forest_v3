@@ -571,6 +571,13 @@ impl NormMode {
             _ => panic!("Not a valid norm, choose l1 or l2")
         }
     }
+
+    pub fn int(self) -> i32 {
+        match self {
+            NormMode::L1 => 1,
+            NormMode::L2 => 2,
+        }
+    }
 }
 
 impl DropMode {
