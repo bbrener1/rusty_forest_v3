@@ -1599,7 +1599,7 @@ class Forest:
         sample_labels = []
 
         for leaf_mask in encoding:
-            leaf_cluster_counts = np.arange([leaf_clusters[mask] == lc for lc in range(len(leaf_cluster_sizes))])
+            leaf_cluster_counts = np.arange([leaf_clusters[leaf_mask] == lc for lc in range(len(leaf_cluster_sizes))])
             odds = leaf_cluster_counts / leaf_cluster_sizes
             sample_labels.append(np.argmax(odds))
 
