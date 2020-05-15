@@ -1674,11 +1674,16 @@ class Forest:
     def node_change_log_fold(self,nodes1,nodes2):
 
         # First we obtain the medians for the nodes in question
-        n1_medians = self.weighted_node_vector_prediction(nodes1)
-        n2_medians = self.weighted_node_vector_prediction(nodes2)
+        # n1_medians = self.weighted_node_vector_prediction(nodes1)
+        # n2_medians = self.weighted_node_vector_prediction(nodes2)
+        # n1_means = self.weighted_node_vector_prediction(nodes1)
+        # n2_means = self.weighted_node_vector_prediction(nodes2)
+        n1_means = np.mean(self.mean_matrix(nodes1),axis=0)
+        n2_means = np.mean(self.mean_matrix(nodes2),axis=0)
 
         # We evaluate the ratio of median values
-        log_fold_change = np.log2(n2_medians/n1_medians)
+        # log_fold_change = np.log2(n2_medians/n1_medians)
+        log_fold_change = np.log2(n2_means/n2_means)
 
         # Because we are working with a division and a log, we have to filter for
         # results that don't have division by zero issues
