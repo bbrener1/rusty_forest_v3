@@ -1683,7 +1683,7 @@ class Forest:
 
         # We evaluate the ratio of median values
         # log_fold_change = np.log2(n2_medians/n1_medians)
-        log_fold_change = np.log2(n2_means/n2_means)
+        log_fold_change = np.log2(n2_means/n1_means)
 
         # Because we are working with a division and a log, we have to filter for
         # results that don't have division by zero issues
