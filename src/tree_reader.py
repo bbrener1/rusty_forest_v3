@@ -3503,9 +3503,13 @@ class NodeCluster:
 
         attributes = {}
 
-        changed_vs_parent,fold_vs_parent = self.changed_log_fold()
-        changed_vs_all,fold_vs_all = self.changed_log_root()
-        changed_vs_sister,fold_vs_sister = self.changed_log_sister()
+        # changed_vs_parent,fold_vs_parent = self.changed_log_fold()
+        # changed_vs_all,fold_vs_all = self.changed_log_root()
+        # changed_vs_sister,fold_vs_sister = self.changed_log_sister()
+
+        changed_vs_parent,fold_vs_parent = self.changed_absolute()
+        changed_vs_all,fold_vs_all = self.changed_absolute_root()
+        changed_vs_sister,fold_vs_sister = self.changed_absolute_sister()
 
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
