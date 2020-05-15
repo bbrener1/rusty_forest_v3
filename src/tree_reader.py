@@ -1748,9 +1748,9 @@ class Forest:
 
         return self.leaf_labels
 
-    def cluster_features(self,*args,**kwargs):
-        gain_matrix = self.absolute_gain_matrix(self.leaves())
-        return sdg.fit_predict(gain_matrix,*args,**kwargs)
+    def cluster_features(self,**kwargs):
+        gain_matrix = self.node_representation(self.nodes(**kwargs),mode='additive_mean')
+        return sdg.fit_predict(gain_matrix,**kwargs)
 
 
     def sdg_cluster_representation(representation,**kwargs):
