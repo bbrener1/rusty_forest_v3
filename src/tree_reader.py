@@ -1774,7 +1774,7 @@ class Forest:
             sister_distance = squareform(pdist(sister_representation,metric=metric))
             # parent_distance = squareform(pdist(parent_representation,metric=metric))
             # aggregate = np.sqrt(own_distance * sister_distance)
-            # aggregate = (own_distance + sister_distance) / 2
+            aggregate = (own_distance + sister_distance) / 2
 
             # aggregate = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
