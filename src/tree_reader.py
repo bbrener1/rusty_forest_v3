@@ -3513,18 +3513,12 @@ class NodeCluster:
 
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
-        attributes['parentUpregulatedHtml'] = generate_feature_value_html(changed_vs_parent[-n:],fold_vs_parent[-n:],cmap='bwr')
-        attributes['parentDownregulatedHtml'] = generate_feature_value_html(changed_vs_parent[:n],fold_vs_parent[:n],cmap='bwr')
-        attributes['sisterUpregulatedHtml'] = generate_feature_value_html(changed_vs_sister[-n:],fold_vs_sister[-n:],cmap='bwr')
-        attributes['sisterDownregulatedHtml'] = generate_feature_value_html(changed_vs_sister[:n],fold_vs_sister[:n],cmap='bwr')
-        attributes['absoluteUpregulatedHtml'] = generate_feature_value_html(changed_vs_all[-n:],fold_vs_all[-n:],cmap='bwr')
-        attributes['absoluteDownregulatedHtml'] = generate_feature_value_html(changed_vs_all[:n],fold_vs_all[:n],cmap='bwr')
-        # attributes['parentUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_parent[-n:]),reversed(fold_vs_parent[-n:]),cmap='bwr')
-        # attributes['parentDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_parent[:n]),reversed(fold_vs_parent[:n]),cmap='bwr')
-        # attributes['sisterUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_sister[-n:]),reversed(fold_vs_sister[-n:]),cmap='bwr')
-        # attributes['sisterDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_sister[:n]),reversed(fold_vs_sister[:n]),cmap='bwr')
-        # attributes['absoluteUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_all[-n:]),reversed(fold_vs_all[-n:]),cmap='bwr')
-        # attributes['absoluteDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_all[:n]),reversed(fold_vs_all[:n]),cmap='bwr')
+        attributes['parentUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_parent[-n:]),reversed(fold_vs_parent[-n:]),cmap='bwr')
+        attributes['parentDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_parent[:n]),reversed(fold_vs_parent[:n]),cmap='bwr')
+        attributes['sisterUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_sister[-n:]),reversed(fold_vs_sister[-n:]),cmap='bwr')
+        attributes['sisterDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_sister[:n]),reversed(fold_vs_sister[:n]),cmap='bwr')
+        attributes['absoluteUpregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_all[-n:]),reversed(fold_vs_all[-n:]),cmap='bwr')
+        attributes['absoluteDownregulatedHtml'] = generate_feature_value_html(reversed(changed_vs_all[:n]),reversed(fold_vs_all[:n]),cmap='bwr')
         attributes['children'] = ", ".join([c.name() for c in self.child_clusters()])
         attributes['parent'] = self.parent_cluster().name()
         attributes['siblings'] = ", ".join([s.name() for s in self.sibling_clusters()])
@@ -3962,12 +3956,12 @@ def generate_feature_value_html(features,values,normalization=None,cmap=None):
     ]
     for feature,value in zip(features,values):
         value_color_tag = ""
-        if normalization is not None:
-            normed_value = normalization(value)
-            r,g,b,a = cmap(normed_value)
-            r,g,b,a = r*100,g*100,b*100,a*100
+        # if normalization is not None:
+        #     normed_value = normalization(value)
+        #     r,g,b,a = cmap(normed_value)
+        #     r,g,b,a = r*100,g*100,b*100,a*100
             # value_color_tag = f'style="background-color:rgba({r}%,{g}%,{b}%,50%);"'
-            value_color_tag = f'style="background-image:linear-gradient(to right,rgba({r}%,{g}%,{b}%,0%),rgba({r}%,{g}%,{b}%,50%));"'
+            # value_color_tag = f'style="background-image:linear-gradient(to right,rgba({r}%,{g}%,{b}%,0%),rgba({r}%,{g}%,{b}%,50%));"'
         feature_elements = f"""
             <tr>
                 <td>{feature}</td>
