@@ -1748,8 +1748,8 @@ class Forest:
 
         return self.leaf_labels
 
-    def cluster_features(self,**kwargs):
-        gain_matrix = self.node_representation(self.nodes(**kwargs),mode='additive_mean')
+    def cluster_features(self,depth=None,**kwargs):
+        gain_matrix = self.node_representation(self.nodes(depth=depth),mode='additive_mean')
         return sdg.fit_predict(gain_matrix,**kwargs)
 
 
