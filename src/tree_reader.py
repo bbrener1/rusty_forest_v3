@@ -1750,7 +1750,7 @@ class Forest:
 
     def cluster_features(self,depth=None,**kwargs):
         gain_matrix = self.node_representation(self.nodes(depth=depth),mode='additive_mean')
-        return sdg.fit_predict(gain_matrix,**kwargs)
+        return sdg.fit_predict(gain_matrix.T,**kwargs)
 
 
     def sdg_cluster_representation(representation,**kwargs):
