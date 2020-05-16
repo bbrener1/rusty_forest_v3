@@ -1471,7 +1471,8 @@ class Forest:
 
         for i,row in enumerate(matrix):
             print(i)
-            sample = {feature:value for feature,value in zip(features,row)}
+            sample = {feature:value for feature,value in zip(range(len(self.output_features)),row)}
+            # sample = {feature:value for feature,value in zip(features,row)}
             predictions[i] = self.predict_sample_cluster(sample)
 
         return predictions
