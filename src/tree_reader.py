@@ -1424,9 +1424,9 @@ class Forest:
             predictions = self.nodes_mean_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
             aggregate = np.mean(predictions)
             cluster_predictions[i] = aggregate
-        print(f"Raw:{cluster_predictions}")
+        # print(f"Raw:{cluster_predictions}")
         cluster_predictions /= cluster_odds
-        print(f"Adjusted:{cluster_predictions}")
+        # print(f"Adjusted:{cluster_predictions}")
 
         cluster = np.argmax(cluster_predictions)
 
