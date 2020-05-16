@@ -1418,9 +1418,10 @@ class Forest:
         leaves = self.predict_sample_leaves(sample)
         cluster_predictions = np.zeros(len(self.sample_clusters))
         for i,cluster in enumerate(self.sample_clusters):
-            predictions,weights = self.nodes_weighted_median_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
+            # predictions,weights = self.nodes_weighted_median_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
             # aggregate = np.sum(np.array(predictions) * np.array(weights)) / np.sum(weights)
-            aggregate = np.sum(np.array(predictions) * np.array(weights))
+            predictions = self.nodes_mean_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
+            aggregate = np.mean(predictions)
             cluster_predictions[i] = aggregate
         # print(cluster_predictions)
         cluster = np.argmax(cluster_predictions)
