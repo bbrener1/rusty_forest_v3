@@ -182,8 +182,12 @@ class Node:
         # As above, mean of an individual feature within this node
 
         fi = self.forest.truth_dictionary.feature_dictionary[feature]
-        values = [self.forest.output[s,fi] for s in self.samples]
-        return np.mean(values)
+
+        if hasattr(self,'mean_cache'):
+            return self.mean_cache[fi]
+        else:
+            values = [self.forest.output[s,fi] for s in self.samples]
+            return np.mean(values)
 
     def dispersions(self):
 
