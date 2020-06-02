@@ -2310,20 +2310,25 @@ class Forest:
 
     def sample_split_class_dependence(self):
 
-        dependence_matrix = np.zeros((len(self.split_clusters),len(self.split_clusters),2))
+        dependence_matrix = np.zeros((len(self.split_clusters),len(self.split_clusters)))
 
-        def recurse_sample_paths(node,paths):
-            for child in node.children:
-                recurse_sample_paths(child,paths)
+        def ascend_sample(node,seen):
             if hasattr(node,'split_cluster'):
-                for sample in self.samples:
-                    paths[sample].append(self.split_cluster)
+                for seen_cluster in seen:
+                    dependence_matrix[node.split_cluster,seen_cluster] += 1
+                seen.add(node.split_cluster)
+            if hasattr(node,'parent'):
+                ascend_sample(node.parent,seen)
+
 
         for root in self.roots():
-            sample_paths = [[] for sample in self.samples]
-            recurse_sample_paths(root,sample_paths)
-            print(sample_paths)
+            for leaf in root.leaves():
+                for i in range(len(leaf.samples)):
+                    ascend_sample(leaf,set())
+            print(dependence_matrix)
 
+
+        return dependence_matrix
 
     def partial_dependence(self):
         total_nodes = self.nodes()
