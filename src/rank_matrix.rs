@@ -7,7 +7,7 @@ use crate::ArgMinMax;
 use num_traits::NumCast;
 use rayon::prelude::*;
 
-pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>,sfr:f64) -> Option<(usize,usize)> {
+pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>,sfr:f64,l:i32) -> Option<(usize,usize)> {
 
     // println!("Splitting {:?},{:?}", input.dim(),output.dim());
 
@@ -48,13 +48,13 @@ pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>
                 for (j,index) in draw_order.iter().enumerate() {
                     rv_f.pop(*index);
                     let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
-                    dispersions[j] +=  rv_f.dispersion().to_f64().expect("cast error") * regularization;
+                    dispersions[j] +=  rv_f.dispersion().to_f64().expect("cast error").powi(l) * regularization;
                 }
                 let mut rv_r = rv.clone();
                 for (j,index) in draw_order.iter().rev().enumerate() {
                     rv_r.pop(*index);
                     let regularization = ((ss_len - j) as f64 / ss_len as f64).powf(sfr);
-                    dispersions[ss_len - j - 1] += rv_r.dispersion().to_f64().expect("cast error") * regularization;
+                    dispersions[ss_len - j - 1] += rv_r.dispersion().to_f64().expect("cast error").powi(l) * regularization;
                 }
             }
             dispersions.into_iter().argmin_v().map(|(local_index,dispersion)| (i,draw_order[local_index],dispersion))
@@ -79,7 +79,7 @@ mod matrix_tests {
     fn split_test() {
         let input = iris_array().t().to_owned();
         let output = iris_array().t().to_owned();
-        println!("{:?}",split(&input,&output,0.));
+        println!("{:?}",split(&input,&output,0.,1));
         panic!();
     }
 

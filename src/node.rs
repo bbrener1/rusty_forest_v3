@@ -78,7 +78,7 @@ pub trait ComputeNode<'a>: Node<'a>
         let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
 
-        let (best_feature_index,best_sample_index) = split(&input_intermediate,&output_intermediate,self.parameters().split_fraction_regularization)?;
+        let (best_feature_index,best_sample_index) = split(&input_intermediate,&output_intermediate,self.parameters().split_fraction_regularization,self.parameters().norm_mode.int())?;
         let (best_feature,best_sample) = (input_feature_subsample[best_feature_index].clone(),sample_subsample[best_sample_index].clone());
         // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
 
@@ -126,7 +126,7 @@ pub trait ComputeNode<'a>: Node<'a>
             reduced_output /= &output_scales;
         }
 
-        let (best_feature_index,best_sample_index) = split(&input_intermediate,&reduced_output.t().to_owned(),self.parameters().split_fraction_regularization)?;
+        let (best_feature_index,best_sample_index) = split(&input_intermediate,&reduced_output.t().to_owned(),self.parameters().split_fraction_regularization,self.parameters().norm_mode.int())?;
         let (best_feature,best_sample) = (input_feature_subsample[best_feature_index].clone(),sample_subsample[best_sample_index].clone());
         // println!("BEST FEATURE/SAMPLE: {:?},{:?}",best_feature,best_sample);
 
@@ -188,7 +188,7 @@ pub trait ComputeNode<'a>: Node<'a>
 
         // println!("Reductions formed");
 
-        let (best_feature_index,best_sample_index) = split(&reduced_input,&reduced_output,self.parameters().split_fraction_regularization)?;
+        let (best_feature_index,best_sample_index) = split(&reduced_input,&reduced_output,self.parameters().split_fraction_regularization,self.parameters().norm_mode.int())?;
         let best_sample = sample_subsample[best_sample_index].clone();
         let split = input_reduction.transform_sample_scaled(&best_sample);
 

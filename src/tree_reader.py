@@ -182,8 +182,12 @@ class Node:
         # As above, mean of an individual feature within this node
 
         fi = self.forest.truth_dictionary.feature_dictionary[feature]
-        values = [self.forest.output[s,fi] for s in self.samples]
-        return np.mean(values)
+
+        if hasattr(self,'mean_cache'):
+            return self.mean_cache[fi]
+        else:
+            values = [self.forest.output[s,fi] for s in self.samples]
+            return np.mean(values)
 
     def dispersions(self):
 
@@ -987,7 +991,10 @@ class Forest:
             encoding = self.node_sister_encoding(nodes).T
         elif mode == 'median' or mode == 'medians':
             print("Median reduction")
-            encoding = self.node_matrix(nodes)
+            encoding = self.median_matrix(nodes)
+        elif mode == 'mean' or mode == 'means':
+            print("Mean reduction")
+            encoding = self.mean_matrix(nodes)
         elif mode == 'weights':
             print("Weight reduction")
             encoding = self.weight_matrix(nodes)
@@ -1004,6 +1011,10 @@ class Forest:
 
         return representation
 
+    def agglomerate_representation(representation,feature_metric='correlation',sample_metric='cosine'):
+        feature_sort = dendrogram(linkage(representation.T,metric=feature_metric,method='average'),no_plot=True)['leaves']
+        sample_sort = dendrogram(linkage(representation,metric=sample_metric,method='average'),no_plot=True)['leaves']
+        return representation[sample_sort].T[feature_sort].T
 
     def node_sister_encoding(self,nodes):
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=int)
@@ -1061,11 +1072,16 @@ class Forest:
             gains[:,i] = node.additive_mean_gains()
         return gains
 
-    def node_matrix(self,nodes):
+    def mean_matrix(self,nodes):
         predictions = np.zeros((len(nodes),len(self.output_features)))
         for i,node in enumerate(nodes):
             predictions[i] = node.means()
-            # predictions[i] = node.medians()
+        return predictions
+
+    def median_matrix(self,nodes):
+        predictions = np.zeros((len(nodes),len(self.output_features)))
+        for i,node in enumerate(nodes):
+            predictions[i] = node.medians()
         return predictions
 
     def weight_matrix(self,nodes):
@@ -1386,7 +1402,7 @@ class Forest:
     def predict_sample(self,sample):
 
         leaves = self.predict_sample_leaves(sample)
-        consolidated_predictions = self.node_matrix(leaves)
+        consolidated_predictions = self.mean_matrix(leaves)
         return np.mean(consolidated_predictions,axis=0)
 
     def predict_sample_cluster(self,sample):
@@ -1404,16 +1420,27 @@ class Forest:
         # cluster = np.argmax(cluster_predictions)
 
         leaves = self.predict_sample_leaves(sample)
+        cluster_odds = np.array([len(s.samples)/self.output.shape[0] for s in self.sample_clusters])
         cluster_predictions = np.zeros(len(self.sample_clusters))
         for i,cluster in enumerate(self.sample_clusters):
-            predictions,weights = self.nodes_weighted_median_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
+            # predictions,weights = self.nodes_weighted_median_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
             # aggregate = np.sum(np.array(predictions) * np.array(weights)) / np.sum(weights)
-            aggregate = np.sum(np.array(predictions) * np.array(weights))
+            predictions = self.nodes_mean_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
+            aggregate = np.mean(predictions)
             cluster_predictions[i] = aggregate
-        # print(cluster_predictions)
+        # print(f"Raw:{cluster_predictions}")
+        cluster_predictions /= cluster_odds
+        # print(f"Adjusted:{cluster_predictions}")
+
         cluster = np.argmax(cluster_predictions)
 
         return cluster
+
+    def test_self_predictions(self):
+        for i,sample in enumerate(self.input):
+            print(f"True cluster:{self.sample_labels[i]}")
+            sample_dict = {i:f for i,f in enumerate(sample)}
+            self.predict_sample_cluster(sample_dict)
 
     def predict_sample_leaf_cluster(self,sample):
         leaves = self.predict_sample_leaves(sample)
@@ -1426,7 +1453,7 @@ class Forest:
         return self.weighted_node_vector_prediction(leaves)
 
     def weighted_node_vector_prediction(self,nodes):
-        raw_predictions = self.node_matrix(nodes)
+        raw_predictions = self.mean_matrix(nodes)
         feature_weight_matrix = self.feature_weight_matrix(nodes)
 
         single_prediction = np.sum(raw_predictions * feature_weight_matrix,axis=0) / np.sum(feature_weight_matrix,axis=0)
@@ -1459,7 +1486,8 @@ class Forest:
 
         for i,row in enumerate(matrix):
             print(i)
-            sample = {feature:value for feature,value in zip(features,row)}
+            sample = {feature:value for feature,value in zip(range(len(self.output_features)),row)}
+            # sample = {feature:value for feature,value in zip(features,row)}
             predictions[i] = self.predict_sample_cluster(sample)
 
         return predictions
@@ -1577,12 +1605,21 @@ class Forest:
         leaves = [n for n in self.nodes() if hasattr(n,'leaf_cluster')]
         encoding = self.node_sample_encoding(leaves)
         leaf_clusters = np.array([l.leaf_cluster for l in leaves])
+        leaf_cluster_sizes = np.array([np.sum(leaf_clusters == cluster) for cluster in range(len(set(leaf_clusters)))])
+
 
         print(f"encoding dimensions: {encoding.shape}")
 
-        from scipy.stats import mode
+        # from scipy.stats import mode
 
-        sample_labels = [mode(leaf_clusters[mask])[0][0] for mask in encoding]
+        sample_labels = []
+
+        for leaf_mask in encoding:
+            leaf_cluster_counts = np.array([np.sum(leaf_clusters[leaf_mask] == lc) for lc in range(len(leaf_cluster_sizes))])
+            odds = leaf_cluster_counts / leaf_cluster_sizes
+            sample_labels.append(np.argmax(odds))
+
+        # sample_labels = [mode(leaf_clusters[mask])[0][0] for mask in encoding]
 
         self.set_sample_labels(np.array(sample_labels).astype(dtype=int))
 
@@ -1624,10 +1661,10 @@ class Forest:
 
         return self.leaf_labels
 
-    def cluster_leaves_predictions(self,override=False,*args,**kwargs):
+    def cluster_leaves_predictions(self,override=False,mode='mean',*args,**kwargs):
 
         leaves = self.leaves()
-        predictions = self.node_representation(leaves,mode='median')
+        predictions = self.node_representation(leaves,mode=mode)
 
         if hasattr(self,'leaf_clusters') and not override:
             print("Clustering has already been done")
@@ -1653,11 +1690,16 @@ class Forest:
     def node_change_log_fold(self,nodes1,nodes2):
 
         # First we obtain the medians for the nodes in question
-        n1_medians = self.weighted_node_vector_prediction(nodes1)
-        n2_medians = self.weighted_node_vector_prediction(nodes2)
+        # n1_medians = self.weighted_node_vector_prediction(nodes1)
+        # n2_medians = self.weighted_node_vector_prediction(nodes2)
+        # n1_means = self.weighted_node_vector_prediction(nodes1)
+        # n2_means = self.weighted_node_vector_prediction(nodes2)
+        n1_means = np.mean(self.mean_matrix(nodes1),axis=0)
+        n2_means = np.mean(self.mean_matrix(nodes2),axis=0)
 
         # We evaluate the ratio of median values
-        log_fold_change = np.log2(n2_medians/n1_medians)
+        # log_fold_change = np.log2(n2_medians/n1_medians)
+        log_fold_change = np.log2(n2_means/n1_means)
 
         # Because we are working with a division and a log, we have to filter for
         # results that don't have division by zero issues
@@ -1677,8 +1719,8 @@ class Forest:
 
         from sklearn.linear_model import LogisticRegression
 
-        n1_counts = self.node_matrix(nodes1)
-        n2_counts = self.node_matrix(nodes2)
+        n1_counts = self.mean_matrix(nodes1)
+        n2_counts = self.mean_matrix(nodes2)
 
         combined = np.concatenate([n1_counts,n2_counts],axis=0)
 
@@ -1722,9 +1764,9 @@ class Forest:
 
         return self.leaf_labels
 
-    def cluster_features(self,*args,**kwargs):
-        gain_matrix = self.absolute_gain_matrix(self.leaves())
-        return sdg.fit_predict(gain_matrix,*args,**kwargs)
+    def cluster_features(self,depth=None,**kwargs):
+        gain_matrix = self.node_representation(self.nodes(depth=depth),mode='additive_mean')
+        return sdg.fit_predict(gain_matrix.T,**kwargs)
 
 
     def sdg_cluster_representation(representation,**kwargs):
@@ -1754,6 +1796,7 @@ class Forest:
             # parent_distance = squareform(pdist(parent_representation,metric=metric))
             # aggregate = np.sqrt(own_distance * sister_distance)
             aggregate = (own_distance + sister_distance) / 2
+
             # aggregate = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
         else:
@@ -3174,13 +3217,16 @@ class SampleCluster:
     def median_feature_values(self):
         return np.median(self.forest.output[self.samples],axis=0)
 
-    def increased_features(self,n=50,plot=True):
-        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
-        current_medians = self.median_feature_values()
+    def mean_feature_values(self):
+        return np.mean(self.forest.output[self.samples],axis=0)
 
-        difference = current_medians - initial_medians
+    def increased_features(self,n=50,plot=True):
+        initial_means = np.mean(self.forest.output)
+        current_means = self.mean_feature_values()
+
+        difference = current_means - initial_means
         feature_order = np.argsort(difference)
-        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_features = np.array(self.forest.output_features)[feature_order]
         ordered_difference = difference[feature_order]
 
         if plot:
@@ -3197,21 +3243,21 @@ class SampleCluster:
 
 
     def decreased_features(self,n=50,plot=True):
-        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
-        current_medians = self.median_feature_values()
+        initial_means = np.mean(self.forest.output)
+        current_means = self.mean_feature_values()
 
-        difference = current_medians - initial_medians
+        difference = current_means - initial_means
         feature_order = np.argsort(difference)
-        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_features = np.array(self.forest.output_features)[feature_order]
         ordered_difference = difference[feature_order]
 
         if plot:
-            plt.figure(figsize=(10,2))
+            plt.figure(figsize=(10,8))
             plt.title("Upregulated Genes")
             plt.scatter(np.arange(n),ordered_difference[:n])
             plt.xlim(0,n)
             plt.xlabel("Gene Symbol")
-            plt.ylabel("Frequency")
+            plt.ylabel("Increase (LogTPM)")
             plt.xticks(np.arange(n),ordered_features[:n],rotation=45,verticalalignment='top',horizontalalignment='right')
             plt.show()
 
@@ -3495,9 +3541,13 @@ class NodeCluster:
 
         attributes = {}
 
-        changed_vs_parent,fold_vs_parent = self.changed_log_fold()
-        changed_vs_all,fold_vs_all = self.changed_log_root()
-        changed_vs_sister,fold_vs_sister = self.changed_log_sister()
+        # changed_vs_parent,fold_vs_parent = self.changed_log_fold()
+        # changed_vs_all,fold_vs_all = self.changed_log_root()
+        # changed_vs_sister,fold_vs_sister = self.changed_log_sister()
+
+        changed_vs_parent,fold_vs_parent = self.changed_absolute()
+        changed_vs_all,fold_vs_all = self.changed_absolute_root()
+        changed_vs_sister,fold_vs_sister = self.changed_absolute_sister()
 
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
@@ -3944,12 +3994,12 @@ def generate_feature_value_html(features,values,normalization=None,cmap=None):
     ]
     for feature,value in zip(features,values):
         value_color_tag = ""
-        if normalization is not None:
-            normed_value = normalization(value)
-            r,g,b,a = cmap(normed_value)
-            r,g,b,a = r*100,g*100,b*100,a*100
+        # if normalization is not None:
+        #     normed_value = normalization(value)
+        #     r,g,b,a = cmap(normed_value)
+        #     r,g,b,a = r*100,g*100,b*100,a*100
             # value_color_tag = f'style="background-color:rgba({r}%,{g}%,{b}%,50%);"'
-            value_color_tag = f'style="background-image:linear-gradient(to right,rgba({r}%,{g}%,{b}%,0%),rgba({r}%,{g}%,{b}%,50%));"'
+            # value_color_tag = f'style="background-image:linear-gradient(to right,rgba({r}%,{g}%,{b}%,0%),rgba({r}%,{g}%,{b}%,50%));"'
         feature_elements = f"""
             <tr>
                 <td>{feature}</td>
