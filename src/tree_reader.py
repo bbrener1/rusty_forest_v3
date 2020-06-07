@@ -521,7 +521,7 @@ class Node:
             if child.filter.filter(sample):
                 nodes.extend(child.sample_nodes(sample))
 
-        print(nodes)
+        # print(nodes)
 
         return nodes
 
