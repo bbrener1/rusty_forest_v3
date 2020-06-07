@@ -2835,7 +2835,7 @@ class Forest:
         predicted_factors = np.zeros((matrix.shape[0],len(self.split_clusters)))
         for i,cluster in enumerate(self.split_clusters):
             matrix[:,i] = cluster.predict_sister_scores(predicted_encoding)
-        return matrix
+        return predicted_factors
 
 class TruthDictionary:
 
