@@ -2371,6 +2371,28 @@ class Forest:
 
         return relative_dependence_scores
 
+    def sample_split_class_dependence(self):
+
+        dependence_matrix = np.zeros((len(self.split_clusters),len(self.split_clusters)))
+
+        def ascend_sample(node,seen):
+            if hasattr(node,'split_cluster'):
+                for seen_cluster in seen:
+                    dependence_matrix[node.split_cluster,seen_cluster] += 1
+                seen.add(node.split_cluster)
+            if hasattr(node,'parent'):
+                ascend_sample(node.parent,seen)
+
+
+        for root in self.roots():
+            for leaf in root.leaves():
+                for i in range(len(leaf.samples)):
+                    ascend_sample(leaf,set())
+            print(dependence_matrix)
+
+
+        return dependence_matrix
+
     def partial_dependence(self):
         total_nodes = self.nodes()
         path_matrix = np.zeros((len(self.split_clusters),len(total_nodes)))
