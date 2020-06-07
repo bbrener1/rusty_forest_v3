@@ -964,6 +964,10 @@ class Forest:
         return [tree.root for tree in self.trees]
 
     def node_sample_encoding(self,nodes):
+
+        # ROWS: SAMPLES
+        # COLUMNS: NODES
+
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=bool)
         for i,node in enumerate(nodes):
             encoding[:,i] = node.encoding()
@@ -1238,13 +1242,40 @@ class Forest:
             sample_nodes.extend(tree.root.sample_nodes(sample))
         return sample_nodes
 
+    def predict_vector_leaves(self,vector,features=None):
+        # if features is None:
+            # features = self.input_features
+        sample = {feature:value for feature,value in zip(range(len(vector)),vector)}
+        return self.predict_sample_leaves(sample)
 
-    def predict_node_sample_encoding(self,matrix):
+    def predict_vector_nodes(self,vector,features=None):
+        # if features is None:
+        #     features = self.input_features
+        sample = {feature:value for feature,value in zip(range(len(vector)),vector)}
+        return self.predict_sample_nodes(sample)
+
+    def predict_node_sample_encoding(self,matrix,leaves=True):
         encoding = np.zeros((len(self.nodes()),matrix.shape[0]),dtype=bool)
+        if leaves:
+            for i,sample in enumerate(matrix):
+                leaves = self.predict_vector_leaves(sample)
+                for leaf in leaves:
+                    encoding[leaf.index,i] = True
+        else:
+            for i,sample in enumerate(matrix):
+                nodes = self.predict_vector_nodes(sample)
+                for node in nodes:
+                    encoding[node.index,i] = True
+        return encoding
+
+    def predict_node_sister_encoding(self,matrix):
+        encoding = np.zeros((len(self.nodes()),matrix.shape[0]),dtype=int)
         for i,sample in enumerate(matrix):
-            leaves = self.predict_vector_leaves(sample)
-            for leaf in leaves:
-                encoding[leaf.index,i] = True
+            nodes = self.predict_vector_nodes(sample)
+            for node in nodes:
+                encoding[node.index,i] = 1
+                if node.sister() is not None:
+                    encoding[node.sister().index,i] = -1
         return encoding
 
     def feature_weight_matrix(self,nodes):
@@ -1493,17 +1524,6 @@ class Forest:
         return predictions
 
 
-    def predict_vector_leaves(self,vector,features=None):
-        # if features is None:
-            # features = self.input_features
-        sample = {feature:value for feature,value in zip(range(len(vector)),vector)}
-        return self.predict_sample_leaves(sample)
-
-    def predict_vector_nodes(self,vector,features=None):
-        # if features is None:
-        #     features = self.input_features
-        sample = {feature:value for feature,value in zip(range(len(vector)),vector)}
-        return self.predict_sample_nodes(sample)
 
 
 ########################################################################
@@ -2442,36 +2462,6 @@ class Forest:
 
 
 
-    def dependence_tree(self):
-
-        ## This method constructs a tree based on partial correlations between the occurrences of split clusters in paths to forest leaves.
-
-        dependence_scores = self.partial_dependence() * self.directional_matrix()
-
-        self.dependence_scores = dependence_scores
-
-        clusters = list(range(dependence_scores.shape[0]))
-
-        proto_tree = [[] for cluster in clusters]
-
-        for cluster in clusters:
-            parent = np.argmin(dependence_scores[cluster])
-            proto_tree[parent].append(cluster)
-
-        print(f"Prototype:{proto_tree}")
-        print(f"Dependence scores:{dependence_scores}")
-
-        tree = []
-        entry = 0
-
-        tree = Forest.finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
-        rtree = Forest.reverse_tree(tree)
-
-        self.likely_tree = tree
-        self.reverse_likely_tree = rtree
-
-        return tree
-
 
     def most_likely_tree(self,depth=3,transitions=None):
 
@@ -2553,362 +2543,10 @@ class Forest:
         return tree
 
 
-    def sample_score_tree(self):
+#########################################################
+### HTML Visualization methods
+#########################################################
 
-        sample_scores = np.zeros((len(self.split_clusters),len(self.samples)))
-        sister_scores = np.zeros((len(self.split_clusters),len(self.samples)))
-
-        for i,split_cluster in enumerate(self.split_clusters):
-            sample_scores[i] = split_cluster.sample_counts()
-            sample_normalization = np.max(sample_scores[i])
-            sample_scores[i] *= (1./sample_normalization)
-            sister_scores[i] = split_cluster.absolute_sister_scores()
-            sister_normalization = np.max(sister_scores[i])
-            sister_scores[i] *= (1./sister_normalization)
-
-        print(sample_scores)
-        print(sister_scores)
-
-        distance_matrix = np.zeros((len(self.split_clusters),len(self.split_clusters)))
-
-        for i in range(len(self.split_clusters)):
-            print(i)
-            plt.figure()
-            plt.hist(np.abs(sister_scores[i]))
-            plt.show()
-            for j in range(len(self.split_clusters)):
-                # print("#####################################")
-                # print("#####################################")
-                # print("#####################################")
-                # print(j)
-                # print(list(np.abs(sister_scores[i] - sample_scores[j])))
-                # delta = np.sum(sister_scores[i] - sample_scores[j])
-                # delta = np.sum(np.abs(sister_scores[i] - sample_scores[j]))
-                delta = np.sum(np.sqrt(np.abs(sister_scores[i] - sample_scores[j])))
-                # delta = np.sum(np.power(np.abs(sister_scores[i]) - sample_scores[j],2))
-                # delta = np.sum(np.power(sister_scores[i],2) - np.power(sample_scores[j],2))
-                # delta = np.dot(np.abs(sister_scores[i]),sample_scores[j])
-                distance_matrix[i,j] = delta
-
-        for i in range(len(self.split_clusters)):
-            distance_matrix[i,i] = float('inf')
-
-        print(distance_matrix)
-
-        # cluster_parents = np.argmin(distance_matrix,axis=0)
-        cluster_parents = np.array([np.argmin(x) for x in distance_matrix])
-        cluster_parents[0] = -1
-
-        print(cluster_parents)
-
-
-        # return cluster_parents
-        #
-        def rec_tree(cluster,parents):
-            output = [cluster,[]]
-            children = np.arange(len(parents))[parents==cluster]
-            for child in children:
-                output[1].append(rec_tree(child,parents))
-            return output
-
-
-        tree =  rec_tree(0,cluster_parents)
-        rtree = Forest.reverse_tree(tree)
-
-        self.likely_tree = tree
-        self.reverse_likely_tree = rtree
-
-        return tree
-
-    def maximum_sample_tree(self):
-
-        sample_scores = np.zeros((len(self.split_clusters),len(self.samples)))
-        sister_scores = np.zeros((len(self.split_clusters),len(self.samples)))
-
-        for i,split_cluster in enumerate(self.split_clusters):
-            sample_scores[i] = split_cluster.sample_counts()
-            sample_normalization = np.max(sample_scores[i])
-            sample_scores[i] *= (1./sample_normalization)
-            sister_scores[i] = split_cluster.absolute_sister_scores()
-            sister_normalization = np.max(sister_scores[i])
-            sister_scores[i] *= (1./sister_normalization)
-
-        print(sample_scores)
-        print(sister_scores)
-
-        distances = np.zeros((len(self.split_clusters),len(self.split_clusters)))
-
-        for i in range(len(self.split_clusters)):
-            print(i)
-            plt.figure()
-            plt.hist(np.abs(sister_scores[i]))
-            plt.show()
-            for j in range(len(self.split_clusters)):
-                # print("#####################################")
-                # print("#####################################")
-                # print("#####################################")
-                # print(j)
-                # print(list(np.abs(sister_scores[i] - sample_scores[j])))
-                # delta = np.sum(sister_scores[i] - sample_scores[j])
-                # delta = np.sum(np.abs(sister_scores[i] - sample_scores[j]))
-                delta = np.sum(np.sqrt(np.abs(sister_scores[i] - sample_scores[j])))
-                # delta = np.sum(np.power(np.abs(sister_scores[i]) - sample_scores[j],2))
-                # delta = np.sum(np.power(sister_scores[i],2) - np.power(sample_scores[j],2))
-                # delta = np.dot(np.abs(sister_scores[i]),sample_scores[j])
-                distances[i,j] = delta
-
-        for i in range(len(self.split_clusters)):
-            distances[i,i] = float('inf')
-
-        mst = np.array(scipy.sparse.csgraph.minimum_spanning_tree(distances).todense())
-
-        mst = np.maximum(mst,mst.T)
-
-        clusters = set(range(len(self.split_clusters)))
-
-        print("Max tree debug")
-        print(distances)
-        print(mst)
-
-        def finite_tree(cluster,available):
-            # print(cluster)
-            # print(mst[cluster])
-            children = []
-            try:
-                available.remove(cluster)
-            except:
-                pass
-            for child in np.arange(mst.shape[0])[mst[cluster] > 0]:
-                if child in available:
-                    available.remove(child)
-                    children.append(child)
-            return [cluster,[finite_tree(child,available) for child in children]]
-
-
-        tree = finite_tree(0,clusters)
-        rtree = Forest.reverse_tree(tree)
-
-        self.likely_tree = tree
-        self.reverse_likely_tree = rtree
-
-        return tree
-
-
-    # def plot_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=False,figsize=(30,30)):
-    #
-    #     ## Helper methods:
-    #
-    #     ## Find the leaves of a tree
-    #     def leaves(tree):
-    #         l = []
-    #         for child in tree[1]:
-    #             l.extend(leaves(child))
-    #         if len(l) < 1:
-    #             l.append(tree[0])
-    #         return l
-    #
-    #     ## Find out how many levels are in this tree (eg its maximum depth)
-    #     def levels(tree,level=0):
-    #         l = []
-    #         for child in tree[1]:
-    #             l.extend(levels(child,level=level+1))
-    #         l.append(level)
-    #         return l
-    #
-    #     # First we compute the width/height of the individual cells
-    #     width = 1/len(leaves(self.likely_tree))
-    #     height = 1/(max(levels(self.likely_tree)) + 1)
-    #
-    #     # Set up the figure
-    #     fig = plt.figure(figsize=figsize)
-    #     arrow_canvas = fig.add_axes([0,0,1,1])
-    #     arrow_canvas.axis('off')
-    #
-    #     # This function determines where to place everything, all coordinates are from 0 to 1, so are fractions of a canvas.
-    #     # The coordinates are placed in a list we pass to the function, because I didn't want to think about how to avoid doing this
-    #     def recursive_axis_coordinates(tree,child_coordinates,limits=[0,1]):
-    #         [x,y] = limits
-    #         child_width = 0
-    #         # First we go lower in recursive layer and find how many children we need to account for from this leaf
-    #         for child in tree[1]:
-    #             cw = recursive_axis_coordinates(child,child_coordinates,[x+child_width,y-(height)])
-    #             child_width += cw
-    #         if child_width == 0:
-    #             child_width = width
-    #         # print("Recursive tree debug")
-    #         # print(f"x:{x},y:{y}")
-    #         # print(f"{tree[0]}")
-    #         # print(f"cw:{child_width}")
-    #
-    #         # We have to place the current leaf at the average position of all leaves below
-    #         padding = (child_width - width) / 2
-    #         coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
-    #         # print(f"coordinates:{coordinates}")
-    #
-    #         child_coordinates.append([tree[0],coordinates])
-    #         return child_width
-    #
-    #         return child_coordinates
-    #
-    #     ## Here we actually call the recursive function
-    #
-    #     coordinates = []
-    #     recursive_axis_coordinates(self.likely_tree,coordinates)
-    #     coordinates = sorted(coordinates,key=lambda x: x[0])
-    #
-    #     for i,[x,y,w,h] in coordinates:
-    #         ax = fig.add_axes([x ,y , w, h])
-    #
-    #         # Clean up the ticks, they are irrelevant
-    #         ax.tick_params(bottom="off", left="off")
-    #         ax.set_yticklabels([])
-    #         ax.set_xticklabels([])
-    #
-    #         # Place the panel generated by the cluster in the axis:
-    #         # If it's not the terminal node or the origin node
-    #
-    #         if type == "ud":
-    #             if i < len(self.split_clusters) and i !=0:
-    #                 self.split_clusters[i].up_down_panel(ax,n=n)
-    #         if type == "id":
-    #             if i < len(self.split_clusters) and i !=0:
-    #                 text_rectangle(ax,f"{i}",[.4,.4,.2,.2],no_warp=True)
-    #         if type == "custom":
-    #             if i < len(self.split_clusters):
-    #                 self.split_clusters[i].custom_panel(ax,custom,labels=labels)
-    #         if type == "features":
-    #             if i < len(self.split_clusters) and i !=0:
-    #                 self.split_clusters[i].feature_panel(ax,features)
-    #         if type == "additive_features":
-    #             if i < len(self.split_clusters) and i !=0:
-    #                 self.split_clusters[i].additive_panel(ax,features)
-    #         if type == "score":
-    #             if i < len(self.split_clusters) and i !=0:
-    #                 self.split_clusters[i].score_panel(ax)
-    #         if i == 0:
-    #             text_rectangle(ax,"Origin",[.25,.5,.5,.5],no_warp=True)
-    #         if i >= len(self.split_clusters):
-    #             text_rectangle(ax,"Terminus",[.25,.5,.5,.5],no_warp=True)
-    #
-    #     # If we created image panels during this process, we want to normalize all of them uniformly:
-    #
-    #     from matplotlib.image import AxesImage
-    #
-    #     if any([isinstance(cc,AxesImage) for c in fig.get_axes() for cc in c.get_children()]):
-    #
-    #         # We want a uniform normalization between all the panels
-    #         # First we find the vmax and vmin values:
-    #
-    #         vmax = 0
-    #         vmin = 0
-    #
-    #         for ax in fig.get_axes():
-    #             for child in ax.get_children():
-    #                 if isinstance(child,AxesImage):
-    #                     vmax = max(vmax,np.max(child.get_array()))
-    #                     vmin = min(vmin,np.min(child.get_array()))
-    #
-    #         if vmin == 0:
-    #             vmin = -1
-    #         if vmax == 0:
-    #             vmax = 1
-    #
-    #         print(f"vmin:{vmin},vmax:{vmax}")
-    #
-    #         # Next we create a uniform normalization
-    #
-    #         import matplotlib.colors as mcl
-    #
-    #         # normalization = mcl.DivergingNorm(0,vmax=vmax,vmin=vmin)
-    #         normalization = mcl.SymLogNorm(0.05,vmin=vmin,vmax=vmax)
-    #
-    #         for ax in fig.get_axes():
-    #             for child in ax.get_children():
-    #                 if isinstance(child,AxesImage):
-    #                     child.set_norm(normalization)
-    #                     child.set_cmap(cmap)
-    #
-    #         ## Finally we create a colorbar that corresponds to the unified view
-    #
-    #         cb = fig.colorbar(mpl.cm.ScalarMappable(norm=normalization, cmap=cmap),ax=fig.get_axes())
-    #         print(f"colorbar:{cb}")
-    #
-    #     # fig.tight_layout()
-    #
-    #     # Next we want to connect the nodes to their canonical children:
-    #
-    #     def flatten_tree(tree):
-    #         flat = []
-    #         for child in tree[1]:
-    #             flat.extend(flatten_tree(child))
-    #         flat.append([tree[0],[c[0] for c in tree[1]]])
-    #         return flat
-    #
-    #     flat_tree = flatten_tree(self.likely_tree)
-    #
-    #     if primary:
-    #
-    #         # print(f"Coordinates:{coordinates}")
-    #         # print(f"Flat tree:{flat_tree}")
-    #
-    #         for i,children in flat_tree:
-    #             x,y,w,h = coordinates[i][1]
-    #             center_x = x + (w * .5)
-    #             center_y = y + (h * .5)
-    #             for ci in children:
-    #                 cx,cy,cw,ch = coordinates[ci][1]
-    #                 child_center_x = cx + (cw/2)
-    #                 child_center_y = cy + (ch/2)
-    #
-    #                 # We would like to set the arrow thickness to be proportional to the mean population of the child
-    #                 if ci < len(self.split_clusters):
-    #                     cp = self.split_clusters[ci].mean_population()
-    #                 else:
-    #                     cp = 1
-    #
-    #                 arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],linewidth=cp*.01,transform=arrow_canvas.transAxes)
-    #
-    #     if secondary:
-    #         # If we want to indicate secondary connections:
-    #         for i in range(len(self.split_clusters)):
-    #             for j in range(len(self.split_clusters)):
-    #                 # if j not in flat_tree[i][1]:
-    #
-    #                     # We scroll through every element in the split cluster transition
-    #                     # matrix
-    #
-    #                 if self.split_cluster_transitions[i,j] > 0:
-    #
-    #                     # If the transitions are non-zero we obtain the coordinates
-    #
-    #                     x,y,w,h = coordinates[i][1]
-    #                     center_x = x + (width * .5)
-    #                     center_y = y + (height * .5)
-    #                     cx,cy,cw,ch = coordinates[j][1]
-    #                     child_center_x = cx + (cw/2)
-    #                     child_center_y = cy + (height/2)
-    #
-    #                     # And plot a line with a weight equivalent to the number of transitions
-    #
-    #                     # cp = self.split_cluster_transitions[i,j]
-    #                     # total = np.sum(self.split_cluster_transitions[i])
-    #                     # arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
-    #
-    #                     ## Alternatively, plot a line with a weight equivalent to the partial correlation of split clusters:
-    #
-    #                     cp = self.dependence_scores[i,j]
-    #                     arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp),linewidth=cp,transform=arrow_canvas.transAxes)
-    #
-    #                     # total = np.sum(self.split_cluster_transitions[i])
-    #                     # arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
-    #
-    #
-    #         return fig
-    #
-    #     #   print(f"N DEBUG TOP:{n}")
-    #
-    #     #   recursive_axes(self.likely_tree,n=n)
-    #     #   return fig
 
     def html_directory(self):
 
@@ -3164,6 +2802,18 @@ class Forest:
         sample_clusters = np.argmax(cluster_scores,axis=1)
         return sample_clusters
 
+    def factor_matrix(self):
+        matrix = np.zeros((len(self.samples),len(self.split_clusters)))
+        for i,cluster in enumerate(self.split_clusters):
+            matrix[:,i] = cluster.sister_scores()
+        return matrix
+
+    def predict_factor_matrix(self,matrix):
+        predicted_encoding = self.predict_node_sample_encoding(matrix)
+        predicted_factors = np.zeros((matrix.shape[0],len(self.split_clusters)))
+        for i,cluster in enumerate(self.split_clusters):
+            matrix[:,i] = cluster.predict_sister_scores(predicted_encoding)
+        return matrix
 
 class TruthDictionary:
 
@@ -3297,8 +2947,21 @@ class NodeCluster:
     def set_name(self,name):
         self.stored_name = name
 
+################################################################################
+### Basic manipulation methods (Nodes/Representations etc)
+################################################################################
+
     def encoding(self):
         return self.forest.node_sample_encoding(self.nodes)
+
+    def node_mask(self):
+        mask = np.zeros(len(self.forest.nodes()),dtype=bool)
+        for node in self.nodes:
+            mask[node.index] = True
+        return mask
+
+    def sisters(self):
+        return [n.sister() for n in self.nodes if n.sister() is not None]
 
     def children(self):
 
@@ -3312,11 +2975,13 @@ class NodeCluster:
 
         return [a for n in self.nodes for a in n.ancestors()]
 
-    def braids(self):
-        return [node.braid for node in self.nodes if node.braid is not None]
+    def weighted_feature_predictions(self):
+        return self.forest.weighted_node_vector_prediction(self.nodes)
 
-    def parent_braids(self):
-        return [node.parent.braid for node in self.nodes if node.parent is not None if node.parent.braid is not None]
+
+################################################################################
+### Consensus tree methods. Kinda weird/hacky. Need to rethink
+################################################################################
 
     def parent_cluster(self):
         try:
@@ -3356,8 +3021,10 @@ class NodeCluster:
         print(indices)
         return [self.forest.split_clusters[i] for i in indices]
 
-    def weighted_feature_predictions(self):
-        return self.forest.weighted_node_vector_prediction(self.nodes)
+
+##############################################################################
+### Feature change methods (eg changes relative to related nodes)
+##############################################################################
 
     def changed_absolute_root(self):
         roots = self.forest.nodes(root=True,depth=0)
@@ -3417,11 +3084,13 @@ class NodeCluster:
 
         return mean_coordinates
 
+################################################################################
+### Mean/summary methods (describe cluster contents)
+################################################################################
+
     def feature_mean(self,feature):
         return np.mean(self.forest.nodes_mean_predict_feature(self.nodes,feature))
 
-    # def feature_additive(self,feature):
-    #     return np.mean(self.forest.nodes_additive_predict_feature(self.nodes,feature))
     def feature_additive(self,feature):
         return np.mean([n.feature_additive(feature) for n in self.nodes])
 
@@ -3443,6 +3112,10 @@ class NodeCluster:
     def mean_population(self):
         return np.mean([len(n.samples) for n in self.nodes])
 
+##############################################################################
+### Sample membership methods
+##############################################################################
+
     def sample_scores(self):
         cluster_encoding = self.encoding()
         return np.sum(cluster_encoding,axis=1) / (cluster_encoding.shape[1] + 1)
@@ -3459,6 +3132,23 @@ class NodeCluster:
         scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
 
         return scores
+
+    def predict_sister_scores(self,node_sample_encoding):
+        own_nodes = self.nodes
+        own_mask = np.zeros(node_sample_encoding.shape[1],dtype=bool)
+        own_mask[[n.index for n in own_nodes]] = True
+
+        sisters = self.sisters()
+        sister_mask = np.zeros(node_sample_encoding.shape[1],dtype=bool)
+        sister_mask[[s.index for s in sisters]] = True
+
+        own_encoding = node_sample_encoding[own_mask]
+        sister_encoding = node_sample_encoding[sister_mask]
+
+        scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
+
+        return scores
+
 
     def absolute_sister_scores(self):
         own = self.nodes
