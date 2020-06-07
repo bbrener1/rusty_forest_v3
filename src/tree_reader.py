@@ -1255,27 +1255,27 @@ class Forest:
         return self.predict_sample_nodes(sample)
 
     def predict_node_sample_encoding(self,matrix,leaves=True):
-        encoding = np.zeros((len(self.nodes()),matrix.shape[0]),dtype=bool)
+        encoding = np.zeros((matrix.shape[0],len(self.nodes())),dtype=bool)
         if leaves:
             for i,sample in enumerate(matrix):
                 leaves = self.predict_vector_leaves(sample)
                 for leaf in leaves:
-                    encoding[leaf.index,i] = True
+                    encoding[i,leaf.index] = True
         else:
             for i,sample in enumerate(matrix):
                 nodes = self.predict_vector_nodes(sample)
                 for node in nodes:
-                    encoding[node.index,i] = True
+                    encoding[i,node.index] = True
         return encoding
 
     def predict_node_sister_encoding(self,matrix):
-        encoding = np.zeros((len(self.nodes()),matrix.shape[0]),dtype=int)
+        encoding = np.zeros(matrix.shape[0],(len(self.nodes())),dtype=int)
         for i,sample in enumerate(matrix):
             nodes = self.predict_vector_nodes(sample)
             for node in nodes:
-                encoding[node.index,i] = 1
+                encoding[i,node.index] = 1
                 if node.sister() is not None:
-                    encoding[node.sister().index,i] = -1
+                    encoding[i,node.sister().index] = -1
         return encoding
 
     def feature_weight_matrix(self,nodes):
