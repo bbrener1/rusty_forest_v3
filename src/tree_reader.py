@@ -132,15 +132,18 @@ class Node:
             self.encoding_cache = encoding
         return encoding
 
+    def sample_mask(self):
+        mask = np.zeros(len(self.forest.samples),dtype=bool)
+        mask[self.samples] = True
+        return mask
+
     def node_counts(self):
 
         # Obtains the count matrix of samples belonging to this node
         # Samples are in order they are in the node
 
-        node_counts = np.zeros((len(self.samples),self.forest.output.shape[1]))
-        for i,sample in enumerate(self.samples):
-            node_counts[i] = self.forest.output[sample]
-        return node_counts
+        copy = self.forest.output[self.samples].copy()
+        return copy
 
     def medians(self):
 
