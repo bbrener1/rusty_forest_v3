@@ -3127,7 +3127,7 @@ class NodeCluster:
 
         model = LinearRegression().fit(split_input,self.forest.output,sample_weight=weights)
 
-        return model
+        return model,split_features
 
 ################################################################################
 ### Mean/summary methods (describe cluster contents)
