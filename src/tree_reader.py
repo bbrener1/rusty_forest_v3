@@ -675,6 +675,12 @@ class Filter:
             print(filter_json)
             raise Exception
 
+    def feature(self):
+        if len(self.reduction.features) == 1:
+            return self.reduction.features[0]
+        else:
+            raise Exception
+
     def filter(self,sample):
         sample_score = self.reduction.score_sample(sample)
         if self.orientation:
@@ -3108,6 +3114,20 @@ class NodeCluster:
         mean_coordinates = np.dot(sample_scores,coordinates) / np.sum(sample_scores)
 
         return mean_coordinates
+
+    def regression(self):
+        from sklearn.linear_model import LinearRegression
+
+        weights = np.abs(self.sister_scores())
+
+        split_features = [n.filter.feature() for n in self.nodes]
+        split_features = list(set(split_features))
+
+        split_input = self.forest.input.T[split_features].T
+
+        model = LinearRegression().fit(split_input,self.forest.output,sample_weight=weights)
+
+        return model
 
 ################################################################################
 ### Mean/summary methods (describe cluster contents)
