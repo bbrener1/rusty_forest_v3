@@ -2147,7 +2147,7 @@ class Forest:
 
 
 
-    def tsne(self,no_plot=False,pca=False,override=False,**kwargs):
+    def tsne(self,no_plot=False,pca=100,override=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
             if pca:
                 self.tsne_coordinates = TSNE().fit_transform(PCA(n_components=pca).fit_transform(self.output))
