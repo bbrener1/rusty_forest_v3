@@ -497,7 +497,7 @@ class Node:
 
 
 
-    def sample_leaves(self,sample):
+    def predict_sample_leaves(self,sample):
 
         # Predictive method
         # Finds the leaves that a given sample belongs to in this (sub) tree
@@ -506,13 +506,13 @@ class Node:
 
         for i,child in enumerate(self.children):
             if child.filter.filter(sample):
-                leaves.extend(child.sample_leaves(sample))
+                leaves.extend(child.predict_sample_leaves(sample))
         if len(leaves) < 1:
             leaves.append(self)
 
         return leaves
 
-    def sample_nodes(self,sample):
+    def predict_sample_nodes(self,sample):
 
         # Predictive method
 
@@ -522,11 +522,52 @@ class Node:
 
         for child in self.children:
             if child.filter.filter(sample):
-                nodes.extend(child.sample_nodes(sample))
+                nodes.extend(child.predict_sample_nodes(sample))
 
         # print(nodes)
 
         return nodes
+
+    def predict_matrix_encoding(self,matrix):
+        print(f"Current index:{self.index}")
+        encodings = []
+        own_mask = self.filter.filter_matrix(matrix)
+        print(own_mask)
+        if np.sum(own_mask) > 0:
+            for child in self.children:
+                print(f"Child Index:{child.index}")
+                child_encoding = child.predict_matrix_encoding(matrix[own_mask])
+                expanded_encoding = np.zeros((child_encoding.shape[0],matrix.shape[0]),dtype=bool)
+                expanded_encoding.T[own_mask] = child_encoding.T
+                encodings.append(expanded_encoding)
+            for child in self.children:
+                expanded_encoding = np.zeros((1,matrix.shape[0]),dtype=bool)
+                expanded_encoding[0][own_mask] = child.filter.filter_matrix(matrix[own_mask])
+                encodings.append(expanded_encoding)
+        else:
+            encodings = [np.zeros((len(self.nodes()),matrix.shape[0]),dtype=bool),]
+        if len(encodings) > 0:
+            combined_encoding = np.vstack(encodings)
+        else:
+            combined_encoding = np.zeros((0,matrix.shape[0]))
+        return combined_encoding
+
+    def test_matrix_prediction(self,matrix=None):
+        if matrix is None:
+            matrix = self.node_counts()
+        own_mask = self.filter.filter_matrix(matrix)
+        if np.sum(own_mask) > 0:
+            for child in self.children:
+                child_encoding = child.test_matrix_prediction(matrix[own_mask])
+                expanded_encoding = np.zeros((child_encoding.shape[0],matrix.shape[0]),dtype=bool)
+                expanded_encoding.T[own_mask] = child_encoding.T
+                encodings.append(expanded_encoding)
+        else:
+            encodings = [np.zeros((len(self.nodes()),matrix.shape[0]),dtype=bool),]
+        encodings.append(own_mask)
+        combined_encoding = np.vstack(encodings)
+        return combined_encoding
+
 
     def tree_path_vector(self):
 
@@ -688,6 +729,12 @@ class Filter:
         else:
             return sample_score <= self.split
 
+    def filter_matrix(self,matrix):
+        scores = self.reduction.score_matrix(matrix)
+        if self.orientation:
+            return scores > self.split
+        else:
+            return scores <= self.split
 
 
 
@@ -704,6 +751,11 @@ class Reduction:
             compound_score += (sample[feature] - feature_mean) * feature_score
         return compound_score
 
+    def score_matrix(self,matrix):
+        compound_scores = np.zeros(matrix.shape[0])
+        if len(self.features) > 0:
+            compound_scores = np.sum((matrix.T[self.features].T - self.means) * self.scores,axis=1)
+        return compound_scores
 
 class Tree:
 
@@ -1242,13 +1294,13 @@ class Forest:
     def predict_sample_leaves(self,sample):
         sample_leaves = []
         for tree in self.trees:
-            sample_leaves.extend(tree.root.sample_leaves(sample))
+            sample_leaves.extend(tree.root.predict_sample_leaves(sample))
         return sample_leaves
 
     def predict_sample_nodes(self,sample):
         sample_nodes = []
         for tree in self.trees:
-            sample_nodes.extend(tree.root.sample_nodes(sample))
+            sample_nodes.extend(tree.root.predict_sample_nodes(sample))
         return sample_nodes
 
     def predict_vector_leaves(self,vector,features=None):
@@ -1263,19 +1315,29 @@ class Forest:
         sample = {feature:value for feature,value in zip(range(len(vector)),vector)}
         return self.predict_sample_nodes(sample)
 
+    # def predict_node_sample_encoding(self,matrix,leaves=True):
+    #     encoding = np.zeros((matrix.shape[0],len(self.nodes())),dtype=bool)
+    #     if leaves:
+    #         for i,sample in enumerate(matrix):
+    #             leaves = self.predict_vector_leaves(sample)
+    #             for leaf in leaves:
+    #                 encoding[i,leaf.index] = True
+    #     else:
+    #         for i,sample in enumerate(matrix):
+    #             nodes = self.predict_vector_nodes(sample)
+    #             for node in nodes:
+    #                 encoding[i,node.index] = True
+    #     return encoding
+
     def predict_node_sample_encoding(self,matrix,leaves=True):
-        encoding = np.zeros((matrix.shape[0],len(self.nodes())),dtype=bool)
+        encodings = [r.predict_matrix_encoding(matrix) for r in self.roots()]
+        encoding = np.vstack(encodings)
         if leaves:
-            for i,sample in enumerate(matrix):
-                leaves = self.predict_vector_leaves(sample)
-                for leaf in leaves:
-                    encoding[i,leaf.index] = True
-        else:
-            for i,sample in enumerate(matrix):
-                nodes = self.predict_vector_nodes(sample)
-                for node in nodes:
-                    encoding[i,node.index] = True
+            leaf_mask = np.zeros(len(self.nodes()),dtype=bool)
+            leaf_mask[[l.index for l in self.leaves()]] = True
+            encoding = encoding[leaf_mask]
         return encoding
+
 
     def predict_node_sister_encoding(self,matrix):
         encoding = np.zeros(matrix.shape[0],(len(self.nodes())),dtype=int)
@@ -1516,6 +1578,7 @@ class Forest:
                 predictions[i] = self.predict_sample(sample)
 
         return predictions
+
 
     def predict_matrix_clusters(self,matrix,features=None):
 
