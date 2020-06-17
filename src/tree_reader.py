@@ -1298,7 +1298,9 @@ class Forest:
 
     def predict_node_sample_encoding(self,matrix,leaves=True):
         encodings = []
-        for root in self.roots():
+        print("Predicting")
+        for i,root in enumerate(self.roots()):
+            print(f"{i}")
             encodings.append(root.predict_matrix_encoding(matrix))
             encodings.append(np.ones(matrix.shape[0]))
         encoding = np.vstack(encodings)
@@ -1561,10 +1563,21 @@ class Forest:
         cluster_odds = np.array([len(s.samples)/self.output.shape[0] for s in self.sample_clusters])
         cluster_features = [self.truth_dictionary.feature_dictionary[f"sample_cluster_{i}"] for i in range(len(self.sample_clusters))]
 
+        print("Odds ready")
+
         predicted_encoding = self.predict_node_sample_encoding(matrix).T
+
+        print("Leaves predicted")
+
         feature_predictions = self.mean_matrix(self.leaves()).T[cluster_features].T
 
+        print("Means predicted")
+
         scaling = np.dot(predicted_encoding,np.ones(feature_predictions.shape))
+
+        print("Scaling computed")
+
+        print(f"E:{predicted_encoding.shape},F:{feature_predictions.shape},S:{scaling.shape}")
 
         cluster_predictions = np.dot(predicted_encoding,feature_predictions) / scaling
         cluster_predictions /= cluster_odds
