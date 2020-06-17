@@ -528,14 +528,11 @@ class Node:
 
         return nodes
 
-    def predict_matrix_encoding(self,matrix):
-        print(f"Current index:{self.index}")
+    def predict_matrix_encoding(self,matrix,leaves=True):
         encodings = []
         own_mask = self.filter.filter_matrix(matrix)
-        print(own_mask)
         if np.sum(own_mask) > 0:
             for child in self.children:
-                print(f"Child Index:{child.index}")
                 child_encoding = child.predict_matrix_encoding(matrix[own_mask])
                 expanded_encoding = np.zeros((child_encoding.shape[0],matrix.shape[0]),dtype=bool)
                 expanded_encoding.T[own_mask] = child_encoding.T
@@ -551,23 +548,6 @@ class Node:
         else:
             combined_encoding = np.zeros((0,matrix.shape[0]))
         return combined_encoding
-
-    def test_matrix_prediction(self,matrix=None):
-        if matrix is None:
-            matrix = self.node_counts()
-        own_mask = self.filter.filter_matrix(matrix)
-        if np.sum(own_mask) > 0:
-            for child in self.children:
-                child_encoding = child.test_matrix_prediction(matrix[own_mask])
-                expanded_encoding = np.zeros((child_encoding.shape[0],matrix.shape[0]),dtype=bool)
-                expanded_encoding.T[own_mask] = child_encoding.T
-                encodings.append(expanded_encoding)
-        else:
-            encodings = [np.zeros((len(self.nodes()),matrix.shape[0]),dtype=bool),]
-        encodings.append(own_mask)
-        combined_encoding = np.vstack(encodings)
-        return combined_encoding
-
 
     def tree_path_vector(self):
 
@@ -1315,22 +1295,12 @@ class Forest:
         sample = {feature:value for feature,value in zip(range(len(vector)),vector)}
         return self.predict_sample_nodes(sample)
 
-    # def predict_node_sample_encoding(self,matrix,leaves=True):
-    #     encoding = np.zeros((matrix.shape[0],len(self.nodes())),dtype=bool)
-    #     if leaves:
-    #         for i,sample in enumerate(matrix):
-    #             leaves = self.predict_vector_leaves(sample)
-    #             for leaf in leaves:
-    #                 encoding[i,leaf.index] = True
-    #     else:
-    #         for i,sample in enumerate(matrix):
-    #             nodes = self.predict_vector_nodes(sample)
-    #             for node in nodes:
-    #                 encoding[i,node.index] = True
-    #     return encoding
 
     def predict_node_sample_encoding(self,matrix,leaves=True):
-        encodings = [r.predict_matrix_encoding(matrix) for r in self.roots()]
+        encodings = []
+        for root in self.roots():
+            encodings.append(root.predict_matrix_encoding(matrix))
+            encodings.append(np.ones(matrix.shape[0]))
         encoding = np.vstack(encodings)
         if leaves:
             leaf_mask = np.zeros(len(self.nodes()),dtype=bool)
@@ -1564,36 +1534,42 @@ class Forest:
 
     def predict_matrix(self,matrix,features=None,weighted=True):
 
-        if features is None:
-            # features = self.input_features
-            features = list(range(len(self.input_features)))
+        encoding_prediction = self.predict_node_sample_encoding(matrix).T
+        feature_predictions = self.mean_matrix(self.leaves())
+        scaling = np.dot(encoding_prediction,np.ones(feature_predictions.shape))
 
-        predictions = np.zeros((len(matrix),len(self.output_features)))
+        return np.dot(encoding_prediction, feature_predictions) / scaling
 
-        for i,row in enumerate(matrix):
-            sample = {feature:value for feature,value in zip(features,row)}
-            if weighted:
-                predictions[i] = self.weighted_predict_sample(sample)
-            else:
-                predictions[i] = self.predict_sample(sample)
+        # if features is None:
+        #     # features = self.input_features
+        #     features = list(range(len(self.input_features)))
+        #
+        # predictions = np.zeros((len(matrix),len(self.output_features)))
+        #
+        # for i,row in enumerate(matrix):
+        #     sample = {feature:value for feature,value in zip(features,row)}
+        #     if weighted:
+        #         predictions[i] = self.weighted_predict_sample(sample)
+        #     else:
+        #         predictions[i] = self.predict_sample(sample)
 
-        return predictions
+        # return predictions
 
 
     def predict_matrix_clusters(self,matrix,features=None):
 
-        if features is None:
-            features = self.input_features
+        cluster_odds = np.array([len(s.samples)/self.output.shape[0] for s in self.sample_clusters])
+        cluster_features = [self.truth_dictionary.feature_dictionary[f"sample_cluster_{i}"] for i in range(len(self.sample_clusters))]
 
-        predictions = np.zeros(len(matrix),dtype=int)
+        predicted_encoding = self.predict_node_sample_encoding(matrix).T
+        feature_predictions = self.mean_matrix(self.leaves()).T[cluster_features].T
 
-        for i,row in enumerate(matrix):
-            print(i)
-            sample = {feature:value for feature,value in zip(range(len(self.output_features)),row)}
-            # sample = {feature:value for feature,value in zip(features,row)}
-            predictions[i] = self.predict_sample_cluster(sample)
+        scaling = np.dot(predicted_encoding,np.ones(feature_predictions.shape))
 
-        return predictions
+        cluster_predictions = np.dot(predicted_encoding,feature_predictions) / scaling
+        cluster_predictions /= cluster_odds
+
+        return np.argmax(cluster_predictions,axis=1)
 
 
 
