@@ -1310,17 +1310,6 @@ class Forest:
             encoding = encoding[leaf_mask]
         return encoding
 
-
-    def predict_node_sister_encoding(self,matrix):
-        encoding = np.zeros(matrix.shape[0],(len(self.nodes())),dtype=int)
-        for i,sample in enumerate(matrix):
-            nodes = self.predict_vector_nodes(sample)
-            for node in nodes:
-                encoding[i,node.index] = 1
-                if node.sister() is not None:
-                    encoding[i,node.sister().index] = -1
-        return encoding
-
     def feature_weight_matrix(self,nodes):
         fd = self.truth_dictionary.feature_dictionary
         weights = np.zeros((len(nodes),len(fd)))
@@ -3233,15 +3222,15 @@ class NodeCluster:
 
     def predict_sister_scores(self,node_sample_encoding):
         own_nodes = self.nodes
-        own_mask = np.zeros(node_sample_encoding.shape[1],dtype=bool)
+        own_mask = np.zeros(node_sample_encoding.shape[0],dtype=bool)
         own_mask[[n.index for n in own_nodes]] = True
 
         sisters = self.sisters()
         sister_mask = np.zeros(node_sample_encoding.shape[1],dtype=bool)
         sister_mask[[s.index for s in sisters]] = True
 
-        own_encoding = node_sample_encoding[:,own_mask]
-        sister_encoding = node_sample_encoding[:,sister_mask]
+        own_encoding = node_sample_encoding[own_mask]
+        sister_encoding = node_sample_encoding[sister_mask]
 
         scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
 
