@@ -2893,6 +2893,7 @@ class Forest:
 
     def predict_factor_matrix(self,matrix):
         predicted_encoding = self.predict_node_sample_encoding(matrix,leaves=False)
+        print(predicted_encoding.shape)
         predicted_factors = np.zeros((matrix.shape[0],len(self.split_clusters)))
         for i,cluster in enumerate(self.split_clusters):
             predicted_factors[:,i] = cluster.predict_sister_scores(predicted_encoding)
