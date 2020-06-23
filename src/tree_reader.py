@@ -3226,7 +3226,7 @@ class NodeCluster:
         own_mask[[n.index for n in own_nodes]] = True
 
         sisters = self.sisters()
-        sister_mask = np.zeros(node_sample_encoding.shape[1],dtype=bool)
+        sister_mask = np.zeros(node_sample_encoding.shape[0],dtype=bool)
         sister_mask[[s.index for s in sisters]] = True
 
         own_encoding = node_sample_encoding[own_mask]
