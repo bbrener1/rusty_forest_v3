@@ -3232,6 +3232,11 @@ class NodeCluster:
         own_encoding = node_sample_encoding[own_mask]
         sister_encoding = node_sample_encoding[sister_mask]
 
+        print(f"own:{own_encoding.shape}")
+        print(f"sister:{sister_encoding.shape}")
+        print(f"own_s:{np.sum(own_encoding,axis=1).shape}")
+        print(f"sister_s:{(-1 * np.sum(sister_encoding,axis=1)).shape}")
+
         scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
 
         return scores
