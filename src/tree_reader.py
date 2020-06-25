@@ -2882,10 +2882,10 @@ class Forest:
 
     def predict_factor_matrix(self,matrix):
         predicted_encoding = self.predict_node_sample_encoding(matrix,leaves=False)
-        print(predicted_encoding.shape)
         predicted_factors = np.zeros((matrix.shape[0],len(self.split_clusters)))
-        for i,cluster in enumerate(self.split_clusters):
-            predicted_factors[:,i] = cluster.predict_sister_scores(predicted_encoding)
+        predicted_factors[:,0] = 1.
+        for i in range(1,len(self.split_clusters[0:])):
+            predicted_factors[:,i] = self.split_clusters[i].predict_sister_scores(predicted_encoding)
         return predicted_factors
 
 class TruthDictionary:
@@ -3232,12 +3232,7 @@ class NodeCluster:
         own_encoding = node_sample_encoding[own_mask]
         sister_encoding = node_sample_encoding[sister_mask]
 
-        print(f"own:{own_encoding.shape}")
-        print(f"sister:{sister_encoding.shape}")
-        print(f"own_s:{np.sum(own_encoding,axis=1).shape}")
-        print(f"sister_s:{(-1 * np.sum(sister_encoding,axis=1)).shape}")
-
-        scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
+        scores = (np.sum(own_encoding,axis=0) + (-1 * np.sum(sister_encoding,axis=0))) / own_encoding.shape[1]
 
         return scores
 
