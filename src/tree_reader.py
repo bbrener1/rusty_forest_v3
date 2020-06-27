@@ -1794,7 +1794,7 @@ class Forest:
 
         combined = np.concatenate([n1_counts,n2_counts],axis=0)
 
-        scaled = sc.preprocessing.scale(combined)
+        scaled = sklearn.preprocessing.scale(combined)
 
         labels = np.zeros(n1_counts.shape[0]+n1_counts.shape[0])
 
