@@ -1794,11 +1794,13 @@ class Forest:
 
         combined = np.concatenate([n1_counts,n2_counts],axis=0)
 
+        scaled = sc.preprocessing.scale(combined)
+
         labels = np.zeros(n1_counts.shape[0]+n1_counts.shape[0])
 
         labels[n2_counts.shape[0]:] = 1
-
-        print(f"Logistic debug:{n1_counts.shape},{n2_counts.shape},{combined.shape},{labels.shape}")
+        #
+        # print(f"Logistic debug:{n1_counts.shape},{n2_counts.shape},{combined.shape},{labels.shape}")
 
         model = LogisticRegression().fit(combined,labels)
 
