@@ -1817,7 +1817,7 @@ class Forest:
     def sdg_cluster_representation(representation,**kwargs):
         return np.array(sdg.fit_predict(representation,**kwargs))
 
-    def interpret_splits(self,override=False,mode='additive',metric='cosine',pca=False,relatives=False,depth=3,**kwargs):
+    def interpret_splits(self,override=False,mode='additive_mean',metric='cosine',pca=100,relatives=True,depth=6,**kwargs):
 
         from sklearn.manifold import MDS
 
