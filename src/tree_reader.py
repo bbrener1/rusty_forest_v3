@@ -606,34 +606,7 @@ class Node:
         if self.parent is not None:
             self.parent.add_child_cluster(cluster,self.lr)
 
-    def l2_sum(self):
 
-        # Descriptive but not currently in use
-
-        counts = self.node_counts()
-        medians = np.median(counts,axis=0)
-        tile = np.tile(medians,(counts.shape[0],1))
-        error = counts - tile
-        return np.sum(np.power(error,2))
-
-    def l1_sum(self):
-
-        # Not currently in use (I think?)
-
-        counts = self.node_counts()
-        medians = np.median(counts,axis=0)
-        tile = np.tile(medians,(counts.shape[0],1))
-        error = counts - tile
-        return np.sum(error)
-
-    def l2_gain(self):
-
-        # Not currently in use
-
-        if len(self.children) > 0:
-            return self.l2_sum() - self.children[0].l2_sum() - self.children[1].l2_sum()
-        else:
-            return 0
 
     def sample_cluster_means(self):
 
@@ -1470,18 +1443,6 @@ class Forest:
 
     def predict_sample_cluster(self,sample):
 
-        # nodes = self.predict_sample_nodes(sample)
-        # print('cluster predict debug')
-        # print(len(nodes))
-        # cluster_predictions = np.zeros(len(self.sample_clusters))
-        # for i,cluster in enumerate(self.sample_clusters):
-        #     predictions,weights = self.nodes_mean_additive_predict_feature(nodes,f"sample_cluster_{int(cluster.id)}")
-        #     # aggregate = np.sum(np.array(predictions) * np.array(weights)) / np.sum(weights)
-        #     aggregate = np.sum(np.array(predictions) * np.array(weights))
-        #     cluster_predictions[i] = aggregate
-        # # print(cluster_predictions)
-        # cluster = np.argmax(cluster_predictions)
-
         leaves = self.predict_sample_leaves(sample)
         cluster_odds = np.array([len(s.samples)/self.output.shape[0] for s in self.sample_clusters])
         cluster_predictions = np.zeros(len(self.sample_clusters))
@@ -1498,12 +1459,6 @@ class Forest:
         cluster = np.argmax(cluster_predictions)
 
         return cluster
-
-    def test_self_predictions(self):
-        for i,sample in enumerate(self.input):
-            print(f"True cluster:{self.sample_labels[i]}")
-            sample_dict = {i:f for i,f in enumerate(sample)}
-            self.predict_sample_cluster(sample_dict)
 
     def predict_sample_leaf_cluster(self,sample):
         leaves = self.predict_sample_leaves(sample)
@@ -1523,13 +1478,24 @@ class Forest:
 
         return single_prediction
 
+    def predict_from_encoding(self,encoding):
+        if encoding.shape[1] != len(self.nodes()):
+            raise Exception("This method only accepts complete encodings. If you wish to use partial encodings zero out all missing nodes")
+        feature_predictions = self.mean_matrix(self.nodes())
+        scaling = np.dot(encoding_prediction,np.ones(feature_predictions.shape))
+
+        return np.dot(encoding_prediction, feature_predictions) / scaling
+
+
     def predict_matrix(self,matrix,features=None,weighted=True):
 
         encoding_prediction = self.predict_node_sample_encoding(matrix).T
         feature_predictions = self.mean_matrix(self.leaves())
         scaling = np.dot(encoding_prediction,np.ones(feature_predictions.shape))
 
-        return np.dot(encoding_prediction, feature_predictions) / scaling
+        prediction = np.dot(encoding_prediction, feature_predictions) / scaling
+        prediction[scaling == 0] = 0
+        return prediction
 
         # if features is None:
         #     # features = self.input_features
@@ -1808,6 +1774,13 @@ class Forest:
 
         ordered_features = np.array(self.output_features)[feature_sort]
         ordered_coefficients = model.coef_[0,:][feature_sort]
+
+        return ordered_features,ordered_coefficients
+
+
+    def node_encoding_error(self,node_sample_encoding,truth):
+
+        # Given a prediction by some nodes for a set of samples
 
         return ordered_features,ordered_coefficients
 
