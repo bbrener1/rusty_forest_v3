@@ -528,7 +528,7 @@ class Node:
 
         return nodes
 
-    def predict_matrix_encoding(self,matrix,leaves=True):
+    def predict_matrix_encoding(self,matrix):
         encodings = []
         own_mask = self.filter.filter_matrix(matrix)
         if np.sum(own_mask) > 0:
@@ -1044,7 +1044,7 @@ class Forest:
                     encoding[sample,i] = -1
         return encoding
 
-    def trim(depth):
+    def trim(self,depth):
 
         for tree in self.trees:
             tree.trim(depth)
@@ -1486,6 +1486,14 @@ class Forest:
 
         return np.dot(encoding_prediction, feature_predictions) / scaling
 
+    def predict_additive(self,matrix):
+        encoding = self.predict_node_sample_encoding(matrix,leaves=False).T
+        feature_predictions = self.mean_additive_matrix(self.nodes()).T
+        prediction = np.dot(encoding, feature_predictions)
+        prediction /= len(self.trees)
+
+        return  prediction
+
 
     def predict_matrix(self,matrix,features=None,weighted=True):
 
@@ -1818,6 +1826,9 @@ class Forest:
         return np.array(sdg.fit_predict(representation,**kwargs))
 
     def interpret_splits(self,override=False,mode='additive_mean',metric='cosine',pca=100,relatives=True,depth=6,**kwargs):
+
+        if pca > len(self.output_features):
+            pca = len(self.output_features)
 
         from sklearn.manifold import MDS
 
