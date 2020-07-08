@@ -1511,20 +1511,6 @@ class Forest:
         prediction[scaling == 0] = 0
         return prediction
 
-        # if features is None:
-        #     # features = self.input_features
-        #     features = list(range(len(self.input_features)))
-        #
-        # predictions = np.zeros((len(matrix),len(self.output_features)))
-        #
-        # for i,row in enumerate(matrix):
-        #     sample = {feature:value for feature,value in zip(features,row)}
-        #     if weighted:
-        #         predictions[i] = self.weighted_predict_sample(sample)
-        #     else:
-        #         predictions[i] = self.predict_sample(sample)
-
-        # return predictions
 
 
     def predict_matrix_clusters(self,matrix,features=None):
@@ -2880,6 +2866,12 @@ class Forest:
             predicted_factors[:,i] = self.split_clusters[i].predict_sister_scores(predicted_encoding)
         return predicted_factors
 
+class Prediction:
+
+    def __init__(self,forest):
+
+        pass
+
 class TruthDictionary:
 
     def __init__(self,counts,header,samples=None):
@@ -3165,7 +3157,11 @@ class NodeCluster:
 
     def error_ratio(self,sample_matrix=None,scores=None):
 
-        if sample_matrix is None and factor_matrix is None:
+        # We would like to weigh the observed error by by the total of the cluster and its sisters, then by samples in the cluster only
+        # The ratio should give us an idea of how much of the variance is explained by the cluster split.
+
+
+        if sample_matrix is None and scores is None:
             sample_matrix = self.forest.output
             scores = self.sister_scores()
 
@@ -3190,10 +3186,10 @@ class NodeCluster:
 
         print(f"P:{positive_error},N:{negative_error},A:{absolute_error}")
         explained_ratio = 1 - ((positive_error+negative_error)/absolute_error)
-        print(f"Explanatory Ratio: {explained_ratio}")
+        print(f"Explained Ratio: {explained_ratio}")
 
         return explained_ratio
-        
+
 ################################################################################
 ### Mean/summary methods (describe cluster contents)
 ################################################################################
