@@ -3209,14 +3209,10 @@ class NodeCluster:
 
         weights = np.abs(self.sister_scores())
 
-        split_features = [n.filter.feature() for n in self.nodes]
-        split_features = list(set(split_features))
+        factor_model = LinearRegression().fit(self.forest.input,weights)
+        output_model = LinearRegression().fit(weights,self.forest.output)
 
-        split_input = self.forest.input.T[split_features].T
-
-        model = LinearRegression().fit(split_input,self.forest.output,sample_weight=weights)
-
-        return model,split_features
+        return factor_model,output_model
 
     def error_ratio(self,sample_matrix=None,scores=None):
 
