@@ -3247,12 +3247,18 @@ class NodeCluster:
         negative_error = np.sum(np.dot(np.power(sample_matrix - negative_mean,2).T,negative))
         absolute_error = np.sum(np.dot(np.power(sample_matrix - absolute_mean,2).T,absolute))
 
+        positive_variance = positive_error/np.sum(positive)
+        negative_variance = negative_error/np.sum(negative)
+        absolute_variance = absolute_error/np.sum(absolute)
 
-        print(f"P:{positive_error},N:{negative_error},A:{absolute_error}")
+        print(f"Error: P:{positive_error},N:{negative_error},A:{absolute_error}")
+        print(f"Variance: P:{positive_variance},N:{negative_variance},A:{absolute_variance}")
+
+        print(f"Explained Error:{((positive_error + negative_error) - absolute_error)}")
         explained_ratio = 1 - ((positive_error+negative_error)/absolute_error)
         print(f"Explained Ratio: {explained_ratio}")
 
-        return explained_ratio
+        return (positive_error,negative_error,absolute_error)
 
 ################################################################################
 ### Mean/summary methods (describe cluster contents)
