@@ -3175,16 +3175,16 @@ class NodeCluster:
 
         absolute = np.abs(scores)
 
-        positive_mean = np.average(forest.output,weights=positive)
-        negative_mean = np.average(forest.output,weights=negative)
-        absolute_mean = np.average(forest.output,weights=absolute)
+        positive_mean = np.average(self.forest.output,axis=0,weights=positive)
+        negative_mean = np.average(self.forest.output,axis=0,weights=negative)
+        absolute_mean = np.average(self.forest.output,axis=0,weights=absolute)
 
-        positive_error = np.dot(np.power(forest.output - positive_mean,2),positive)
-        negative_error = np.dot(np.power(forest.output - negative_mean,2),negative)
-        absolute_error = np.dot(np.power(forest.output - absolute_mean,2),absolute)
+        positive_error = np.dot(np.power(self.forest.output - positive_mean,2).T,positive)
+        negative_error = np.dot(np.power(self.forest.output - negative_mean,2).T,negative)
+        absolute_error = np.dot(np.power(self.forest.output - absolute_mean,2).T,absolute)
 
         print(f"P:{np.sum(positive_error)},N:{np.sum(negative_error)},A:{np.sum(absolute_error)}")
-        print(f"Explanatory Ratio: {(np.sum(positive_error)+np.sum(negative_error)) / np.sum(absolute_error)}")
+        print(f"Explanatory Ratio: {1 - (np.sum(positive_error)+np.sum(negative_error)) / np.sum(absolute_error)}")
 
 ################################################################################
 ### Mean/summary methods (describe cluster contents)
