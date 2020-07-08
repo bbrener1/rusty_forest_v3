@@ -3163,7 +3163,11 @@ class NodeCluster:
 
         return model,split_features
 
-    def error_ratio(self):
+    def error_ratio(self,sample_matrix=None,scores=None):
+
+        if sample_matrix is None and factor_matrix is None:
+            sample_matrix = self.forest.output
+            scores = self.sister_scores()
 
         scores = self.sister_scores()
         positive = scores.copy()
@@ -3175,17 +3179,21 @@ class NodeCluster:
 
         absolute = np.abs(scores)
 
-        positive_mean = np.average(self.forest.output,axis=0,weights=positive)
-        negative_mean = np.average(self.forest.output,axis=0,weights=negative)
-        absolute_mean = np.average(self.forest.output,axis=0,weights=absolute)
+        positive_mean = np.average(sample_matrix,axis=0,weights=positive)
+        negative_mean = np.average(sample_matrix,axis=0,weights=negative)
+        absolute_mean = np.average(sample_matrix,axis=0,weights=absolute)
 
-        positive_error = np.dot(np.power(self.forest.output - positive_mean,2).T,positive)
-        negative_error = np.dot(np.power(self.forest.output - negative_mean,2).T,negative)
-        absolute_error = np.dot(np.power(self.forest.output - absolute_mean,2).T,absolute)
+        positive_error = np.sum(np.dot(np.power(sample_matrix - positive_mean,2).T,positive))
+        negative_error = np.sum(np.dot(np.power(sample_matrix - negative_mean,2).T,negative))
+        absolute_error = np.sum(np.dot(np.power(sample_matrix - absolute_mean,2).T,absolute))
 
-        print(f"P:{np.sum(positive_error)},N:{np.sum(negative_error)},A:{np.sum(absolute_error)}")
-        print(f"Explanatory Ratio: {1 - (np.sum(positive_error)+np.sum(negative_error)) / np.sum(absolute_error)}")
 
+        print(f"P:{positive_error},N:{negative_error},A:{absolute_error}")
+        explained_ratio = 1 - ((positive_error+negative_error)/absolute_error)
+        print(f"Explanatory Ratio: {explained_ratio}")
+
+        return explained_ratio
+        
 ################################################################################
 ### Mean/summary methods (describe cluster contents)
 ################################################################################
