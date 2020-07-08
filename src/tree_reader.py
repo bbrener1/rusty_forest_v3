@@ -2891,7 +2891,7 @@ class Prediction:
             self.nae = self.forest.mean_additive_matrix(self.forest.nodes())
         return self.nae
 
-    def predict_additive(self):
+    def additive_prediction(self):
         encoding = self.node_sample_encoding().T
         feature_predictions = self.node_additive_encoding().T
         prediction = np.dot(encoding, feature_predictions)
@@ -2899,7 +2899,7 @@ class Prediction:
 
         return  prediction
 
-    def predict_mean(self):
+    def mean_prediction(self):
 
         leaf_mask = self.forest.leaf_mask()
         encoding_prediction = self.node_sample_encoding()[leaf_mask].T
@@ -2915,22 +2915,23 @@ class Prediction:
 
         if self.smc is None:
 
-            cluster_odds = np.array([len(s.samples)/self.forest.output.shape[0] for s in self.sample_clusters])
-            cluster_features = [self.forest.truth_dictionary.feature_dictionary[f"sample_cluster_{i}"] for i in range(len(self.sample_clusters))]
+            cluster_odds = np.array([len(s.samples)/len(self.forest.sample_labels) for s in self.forest.sample_clusters])
+            cluster_features = [self.forest.truth_dictionary.feature_dictionary[f"sample_cluster_{i}"] for i in range(len(self.forest.sample_clusters))]
 
-            cluster_predictions = self.predict_mean()[cluster_features]
-            cluster_predictions /= cluster_odds
+            cluster_predictions = self.mean_prediction()[:,cluster_features]
+
+            cluster_predictions = cluster_predictions / cluster_odds
 
             self.smc = np.argmax(cluster_predictions,axis=1)
 
         return self.smc
 
-    def factors(self):
+    def factor_matrix(self):
         predicted_encoding = self.node_sample_encoding()
-        predicted_factors = np.zeros((matrix.shape[0],len(self.split_clusters)))
+        predicted_factors = np.zeros((self.matrix.shape[0],len(self.forest.split_clusters)))
         predicted_factors[:,0] = 1.
-        for i in range(1,len(self.split_clusters[0:])):
-            predicted_factors[:,i] = self.split_clusters[i].predict_sister_scores(predicted_encoding)
+        for i in range(1,len(self.forest.split_clusters[0:])):
+            predicted_factors[:,i] = self.forest.split_clusters[i].predict_sister_scores(predicted_encoding)
         return predicted_factors
 
 
