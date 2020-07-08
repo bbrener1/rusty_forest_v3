@@ -126,16 +126,14 @@ class Node:
         if hasattr(self,'encoding_cache'):
             return self.encoding_cache
         encoding = np.zeros(len(self.forest.samples),dtype=bool)
-        for sample in self.samples:
-            encoding[sample] = True
+        encoding[self.samples] = True
         if self.cache:
             self.encoding_cache = encoding
         return encoding
 
     def sample_mask(self):
-        mask = np.zeros(len(self.forest.samples),dtype=bool)
-        mask[self.samples] = True
-        return mask
+        # Alias of encoding
+        return self.encoding()
 
     def node_counts(self):
 
@@ -152,7 +150,7 @@ class Node:
         if self.cache:
             if hasattr(self,'median_cache'):
                 return self.median_cache
-        matrix = self.node_counts()
+        matrix = self.forest.output[self.sample_mask()]
         medians = np.median(matrix,axis=0)
         if self.cache:
             self.median_cache = medians
@@ -174,7 +172,7 @@ class Node:
         if self.cache:
             if hasattr(self,'mean_cache'):
                 return self.mean_cache
-        matrix = self.node_counts()
+        matrix = self.forest.output[self.sample_mask()]
         means = np.mean(matrix,axis=0)
         if self.cache:
             self.mean_cache = means
@@ -1049,6 +1047,12 @@ class Forest:
         for tree in self.trees:
             tree.trim(depth)
 
+    def leaf_mask(self):
+        leaf_mask = np.zeros(len(self.nodes()),dtype=bool)
+        leaf_mask[[l.index for l in self.leaves()]] = True
+        return leaf_mask
+
+
 ########################################################################
 ########################################################################
 
@@ -1244,6 +1248,10 @@ class Forest:
 ########################################################################
 ########################################################################
 
+    def predict(self,matrix):
+        prediction = Prediction(self,matrix)
+        return prediction
+
     def predict_sample_leaves(self,sample):
         sample_leaves = []
         for tree in self.trees:
@@ -1278,9 +1286,7 @@ class Forest:
             encodings.append(np.ones(matrix.shape[0]))
         encoding = np.vstack(encodings)
         if leaves:
-            leaf_mask = np.zeros(len(self.nodes()),dtype=bool)
-            leaf_mask[[l.index for l in self.leaves()]] = True
-            encoding = encoding[leaf_mask]
+            encoding = encoding[self.leaf_mask()]
         if depth is not None:
             depth_mask = np.zeros(encoding.shape[0],dtype=bool)
             for n in self.nodes():
@@ -1484,14 +1490,6 @@ class Forest:
 
         return single_prediction
 
-    def predict_from_encoding(self,encoding):
-        if encoding.shape[1] != len(self.nodes()):
-            raise Exception("This method only accepts complete encodings. If you wish to use partial encodings zero out all missing nodes")
-        feature_predictions = self.mean_matrix(self.nodes())
-        scaling = np.dot(encoding_prediction,np.ones(feature_predictions.shape))
-
-        return np.dot(encoding_prediction, feature_predictions) / scaling
-
     def predict_additive(self,matrix):
         encoding = self.predict_node_sample_encoding(matrix,leaves=False).T
         feature_predictions = self.mean_additive_matrix(self.nodes()).T
@@ -1499,6 +1497,7 @@ class Forest:
         prediction /= len(self.trees)
 
         return  prediction
+
 
 
     def predict_matrix(self,matrix,features=None,weighted=True):
@@ -1510,7 +1509,6 @@ class Forest:
         prediction = np.dot(encoding_prediction, feature_predictions) / scaling
         prediction[scaling == 0] = 0
         return prediction
-
 
 
     def predict_matrix_clusters(self,matrix,features=None):
@@ -1540,6 +1538,13 @@ class Forest:
         return np.argmax(cluster_predictions,axis=1)
 
 
+    def predict_factor_matrix(self,matrix):
+        predicted_encoding = self.predict_node_sample_encoding(matrix,leaves=False)
+        predicted_factors = np.zeros((matrix.shape[0],len(self.split_clusters)))
+        predicted_factors[:,0] = 1.
+        for i in range(1,len(self.split_clusters[0:])):
+            predicted_factors[:,i] = self.split_clusters[i].predict_sister_scores(predicted_encoding)
+        return predicted_factors
 
 
 ########################################################################
@@ -2858,19 +2863,76 @@ class Forest:
             matrix[:,i] = cluster.sister_scores()
         return matrix
 
-    def predict_factor_matrix(self,matrix):
-        predicted_encoding = self.predict_node_sample_encoding(matrix,leaves=False)
+
+class Prediction:
+
+    def __init__(self,forest,matrix):
+        self.forest = forest
+        self.matrix = matrix
+        self.nse = None
+        self.nme = None
+        self.nae = None
+        self.smc = None
+        self.factors = None
+
+
+    def node_sample_encoding(self):
+        if self.nse is None:
+            self.nse = self.forest.predict_node_sample_encoding(self.matrix,leaves=False)
+        return self.nse
+
+    def node_mean_encoding(self):
+        if self.nme is None:
+            self.nme = self.forest.mean_matrix(self.forest.nodes())
+        return self.nme
+
+    def node_additive_encoding(self):
+        if self.nae is None:
+            self.nae = self.forest.mean_additive_matrix(self.forest.nodes())
+        return self.nae
+
+    def predict_additive(self):
+        encoding = self.node_sample_encoding().T
+        feature_predictions = self.node_additive_encoding().T
+        prediction = np.dot(encoding, feature_predictions)
+        prediction /= len(self.forest.trees)
+
+        return  prediction
+
+    def predict_mean(self):
+
+        leaf_mask = self.forest.leaf_mask()
+        encoding_prediction = self.node_sample_encoding()[leaf_mask].T
+        feature_predictions = self.node_mean_encoding()[leaf_mask]
+        scaling = np.dot(encoding_prediction,np.ones(feature_predictions.shape))
+
+        prediction = np.dot(encoding_prediction, feature_predictions) / scaling
+        prediction[scaling == 0] = 0
+        return prediction
+
+
+    def sample_clusters(self):
+
+        if self.smc is None:
+
+            cluster_odds = np.array([len(s.samples)/self.forest.output.shape[0] for s in self.sample_clusters])
+            cluster_features = [self.forest.truth_dictionary.feature_dictionary[f"sample_cluster_{i}"] for i in range(len(self.sample_clusters))]
+
+            cluster_predictions = self.predict_mean()[cluster_features]
+            cluster_predictions /= cluster_odds
+
+            self.smc = np.argmax(cluster_predictions,axis=1)
+
+        return self.smc
+
+    def factors(self):
+        predicted_encoding = self.node_sample_encoding()
         predicted_factors = np.zeros((matrix.shape[0],len(self.split_clusters)))
         predicted_factors[:,0] = 1.
         for i in range(1,len(self.split_clusters[0:])):
             predicted_factors[:,i] = self.split_clusters[i].predict_sister_scores(predicted_encoding)
         return predicted_factors
 
-class Prediction:
-
-    def __init__(self,forest):
-
-        pass
 
 class TruthDictionary:
 
