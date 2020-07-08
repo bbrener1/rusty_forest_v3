@@ -1269,7 +1269,7 @@ class Forest:
         return self.predict_sample_nodes(sample)
 
 
-    def predict_node_sample_encoding(self,matrix,leaves=True):
+    def predict_node_sample_encoding(self,matrix,leaves=True,depth=None):
         encodings = []
         print("Predicting")
         for i,root in enumerate(self.roots()):
@@ -1281,6 +1281,12 @@ class Forest:
             leaf_mask = np.zeros(len(self.nodes()),dtype=bool)
             leaf_mask[[l.index for l in self.leaves()]] = True
             encoding = encoding[leaf_mask]
+        if depth is not None:
+            depth_mask = np.zeros(encoding.shape[0],dtype=bool)
+            for n in self.nodes():
+                if n.depth <= depth:
+                    depth_mask[n.index] = True
+            encoding = encoding[depth_mask]
         return encoding
 
     def feature_weight_matrix(self,nodes):
@@ -3156,6 +3162,29 @@ class NodeCluster:
         model = LinearRegression().fit(split_input,self.forest.output,sample_weight=weights)
 
         return model,split_features
+
+    def error_ratio(self):
+
+        scores = self.sister_scores()
+        positive = scores.copy()
+        negative = scores.copy()
+
+        positive[scores < 0] = 0
+        negative[scores > 0] = 0
+        negative = np.abs(negative)
+
+        absolute = np.abs(scores)
+
+        positive_mean = np.average(forest.output,weights=positive)
+        negative_mean = np.average(forest.output,weights=negative)
+        absolute_mean = np.average(forest.output,weights=absolute)
+
+        positive_error = np.dot(np.power(forest.output - positive_mean,2),positive)
+        negative_error = np.dot(np.power(forest.output - negative_mean,2),negative)
+        absolute_error = np.dot(np.power(forest.output - absolute_mean,2),absolute)
+
+        print(f"P:{np.sum(positive_error)},N:{np.sum(negative_error)},A:{np.sum(absolute_error)}")
+        print(f"Explanatory Ratio: {(np.sum(positive_error)+np.sum(negative_error)) / np.sum(absolute_error)}")
 
 ################################################################################
 ### Mean/summary methods (describe cluster contents)
