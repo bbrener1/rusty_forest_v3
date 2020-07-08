@@ -3224,7 +3224,7 @@ class NodeCluster:
         # The ratio should give us an idea of how much of the variance is explained by the cluster split.
 
 
-        if sample_matrix is None
+        if sample_matrix is None:
             sample_matrix = self.forest.output
             scores = self.sister_scores()
         if scores is None:
