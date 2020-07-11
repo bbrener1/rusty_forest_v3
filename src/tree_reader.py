@@ -3207,10 +3207,12 @@ class NodeCluster:
     def regression(self):
         from sklearn.linear_model import LinearRegression
 
-        weights = np.abs(self.sister_scores())
+        scores = self.sister_scores()
+        weights = np.abs(scores)
+        direction = np.sign(scores)
 
-        factor_model = LinearRegression().fit(self.forest.input,weights)
-        output_model = LinearRegression().fit(weights.reshape(-1, 1),self.forest.output)
+        factor_model = LinearRegression().fit(self.forest.input,direction,sample_weight=weights)
+        output_model = LinearRegression().fit(direction.reshape(-1, 1),self.forest.output,sample_weight=weights)
 
         return factor_model,output_model
 
