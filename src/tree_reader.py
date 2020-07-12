@@ -3209,10 +3209,9 @@ class NodeCluster:
 
         scores = self.sister_scores()
         weights = np.abs(scores)
-        direction = np.sign(scores)
 
-        factor_model = LinearRegression().fit(self.forest.input,direction,sample_weight=weights)
-        output_model = LinearRegression().fit(direction.reshape(-1, 1),self.forest.output,sample_weight=weights)
+        factor_model = LinearRegression().fit(self.forest.input,scores.reshape(-1, 1),sample_weight=weights)
+        output_model = LinearRegression().fit(scores.reshape(-1, 1),self.forest.output,sample_weight=weights)
 
         return factor_model,output_model
 
