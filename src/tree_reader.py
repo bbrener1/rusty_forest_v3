@@ -3204,11 +3204,13 @@ class NodeCluster:
 
         scores = self.sister_scores()
         weights = np.abs(scores)
+        top_features = self.top_split_features()
+        selection = self.forest.output.T[top_features].T
 
-        factor_model = LinearRegression().fit(self.forest.input,scores.reshape(-1, 1),sample_weight=weights)
-        output_model = LinearRegression().fit(scores.reshape(-1, 1),self.forest.output,sample_weight=weights)
+        factor_model = LinearRegression().fit(selection,scores.reshape(-1, 1),sample_weight=weights)
+        output_model = LinearRegression().fit(selection,self.forest.output,sample_weight=weights)
 
-        return factor_model,output_model
+        return top_features,factor_model,output_model
 
     def error_ratio(self,sample_matrix=None,scores=None):
 
