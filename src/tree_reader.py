@@ -441,12 +441,7 @@ class Node:
 
         # Best guess at the "split feature" of this node, if any
 
-        if self.split is not None:
-            return self.split.feature['name']
-        elif self.braid is not None:
-            return self.braid.features[0]
-        else:
-            return None
+        return self.filter.feature()
 
     def level(self,target):
 
@@ -3256,6 +3251,19 @@ class NodeCluster:
         print(f"Explained Ratio: {explained_ratio}")
 
         return (positive_error,negative_error,absolute_error)
+
+    def weighted_covariance(self):
+        pass
+
+    def top_split_features(self,n=10):
+        from scipy.spatial.distance import cdist
+
+        split_features = list(set([n.feature() for n in self.nodes if n.feature() is not None]))
+        selection = self.forest.output.T[split_features].T
+        factor_scores = self.sister_scores()
+        correlations = [np.corrcoef(f,factor_scores)[0,0] for f in selection.T]
+        top_features = [split_features[i] for i in np.argsort(correlations)]
+        return top_features[-n:]
 
 ################################################################################
 ### Mean/summary methods (describe cluster contents)
