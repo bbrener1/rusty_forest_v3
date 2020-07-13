@@ -3258,13 +3258,13 @@ class NodeCluster:
         pass
 
     def top_split_features(self,n=10):
-        from scipy.spatial.distance import cdist
+        from sklearn.linear_model import LinearRegression
 
         split_features = list(set([n.feature() for n in self.nodes if n.feature() is not None]))
         selection = self.forest.output.T[split_features].T
         factor_scores = self.sister_scores()
-        correlations = [np.corrcoef(f,factor_scores)[0,0] for f in selection.T]
-        top_features = [split_features[i] for i in np.argsort(correlations)]
+        model = LinearRegression().fit(selection,factor_scores,sample_weight=np.abs(factor_scores))
+        top_features = [split_features[i] for i in np.argsort(np.abs(model.coef_))]
         return top_features[-n:]
 
 ################################################################################
