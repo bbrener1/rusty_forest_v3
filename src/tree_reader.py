@@ -2164,7 +2164,17 @@ class Forest:
                     coordinates[i,j] = split_cluster.feature_mean(feature)
         return coordinates
 
-
+    def split_cluster_domain_mean_matrix(self,features=None):
+        if features is None:
+            coordinates = np.zeros((len(self.split_clusters),len(self.output_features)))
+            for i,split_cluster in enumerate(self.split_clusters):
+                coordinates[i] = np.mean(self.mean_matrix(split_cluster.nodes+split_cluster.sisters()),axis=0)
+        else:
+            coordinates = np.zeros((len(self.split_clusters),len(features)))
+            for i,split_cluster in enumerate(self.split_clusters):
+                for j,feature in enumerate(features):
+                    coordinates[i,j] = self.forest.nodes_mean_predict_feature(split_cluster.nodes + split_cluster.sisters())
+        return coordinates
 
     def tsne(self,no_plot=False,pca=100,override=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
@@ -2553,7 +2563,7 @@ class Forest:
             # np.diag(distances) = 0
             distances[:,-1] = 0
         elif mode == "means":
-            distances = squareform(1. - pdist(self.split_cluster_feature_matrix(),metric="cosine"))
+            distances = squareform(1. - pdist(self.split_cluster_domain_mean_matrix(),metric="cosine"))
         elif mode == "samples":
             cluster_values = np.array([c.sample_scores() for c in self.split_clusters])
             distances = squareform(1. - pdist(cluster_values,metric="cosine"))
