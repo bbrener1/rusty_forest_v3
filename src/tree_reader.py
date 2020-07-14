@@ -24,7 +24,7 @@ from functools import reduce
 import scipy.special
 from scipy.stats import linregress
 from scipy.spatial.distance import jaccard
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist,cdist
 from scipy.spatial.distance import squareform
 from scipy.optimize import nnls
 
@@ -2563,7 +2563,12 @@ class Forest:
             # np.diag(distances) = 0
             distances[:,-1] = 0
         elif mode == "means":
-            distances = squareform(1. - pdist(self.split_cluster_domain_mean_matrix(),metric="cosine"))
+            mean_matrix = self.split_cluster_feature_matrix()
+            domain_matrix = self.split_cluster_domain_mean_matrix()
+            distances = 1. - cdist(mean_matrix,domain_matrix,metric="cosine")
+            print(distances.shape)
+            Exception()
+            # distances = squareform(1. - cdist(mean_matrix,domain_matrix,metric="cosine"))
         elif mode == "samples":
             cluster_values = np.array([c.sample_scores() for c in self.split_clusters])
             distances = squareform(1. - pdist(cluster_values,metric="cosine"))
