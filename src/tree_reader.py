@@ -3017,9 +3017,8 @@ class SampleCluster:
         mask = self.mask()
         model = LogisticRegression().fit(self.forest.input,mask)
 
-        print(model.coef_.shape)
+        coefficient_sort = np.argsort(model.coef_[0])
 
-        coefficient_sort = np.argsort(model.coef_)
         sorted_features = self.forest.output_features[coefficient_sort][-n:]
         sorted_coefficients = model.coef_[0][coefficient_sort][-n:]
 
