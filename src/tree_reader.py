@@ -2550,12 +2550,13 @@ class Forest:
 
         if mode == "transition_matrix":
             distances = self.split_cluster_transition_matrix(depth=depth)
+            # np.diag(distances) = 0
             distances[:,-1] = 0
         elif mode == "means":
-            distances = squareform(pdist(self.split_cluster_feature_matrix(),metric="cosine"))
+            distances = squareform(1. - pdist(self.split_cluster_feature_matrix(),metric="cosine"))
         elif mode == "samples":
             cluster_values = np.array([c.sample_scores() for c in self.split_clusters])
-            distances = squareform(pdist(cluster_values,metric="cosine"))
+            distances = squareform(1. - pdist(cluster_values,metric="cosine"))
         else:
             raise Exception(f"Not a valid mode: {mode}")
 
@@ -3276,7 +3277,12 @@ class NodeCluster:
         return (positive_error,negative_error,absolute_error)
 
     def weighted_covariance(self):
-        pass
+        scores = self.sister_scores()
+        weights = np.abs(scores)
+
+        weighted_means = np.average(self.forest.output,axis=0,weights=weights)
+        centered_data = self.forest.output - weighted_means
+        covariance = np.dot(centered_data.T,centered_data)
 
     def top_split_features(self,n=10):
         from sklearn.linear_model import LinearRegression
