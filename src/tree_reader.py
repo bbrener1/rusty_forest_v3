@@ -3015,11 +3015,14 @@ class SampleCluster:
         from sklearn.linear_model import LogisticRegression
 
         mask = self.mask()
-        model = LogisticRegression().fit(self.forest.input,mask)
+
+        scaled = sklearn.preprocessing.scale(self.forest.input)
+
+        model = LogisticRegression().fit(scaled,mask)
 
         coefficient_sort = np.argsort(model.coef_[0])
 
-        sorted_features = self.forest.output_features[coefficient_sort][-n:]
+        sorted_features = self.forest.input_features[coefficient_sort][-n:]
         sorted_coefficients = model.coef_[0][coefficient_sort][-n:]
 
         return sorted_features,sorted_coefficients
