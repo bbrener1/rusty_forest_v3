@@ -2957,6 +2957,11 @@ class SampleCluster:
         self.samples = samples
         self.forest = forest
 
+    def mask(self):
+        mask = np.zeros(len(self.forest.samples),dtype=bool)
+        mask[self.samples] = True
+        return mask
+
     def median_feature_values(self):
         return np.median(self.forest.output[self.samples],axis=0)
 
@@ -2984,7 +2989,6 @@ class SampleCluster:
 
         return ordered_features,ordered_difference
 
-
     def decreased_features(self,n=50,plot=True):
         initial_means = np.mean(self.forest.output)
         current_means = self.mean_feature_values()
@@ -3005,6 +3009,19 @@ class SampleCluster:
             plt.show()
 
         return ordered_features,ordered_difference
+
+    def logistic_features(self,n=50):
+
+        from sklearn.linear_model import LogisticRegression
+
+        mask = self.mask()
+        model = LogisticRegression().fit(self.forest.input,mask)
+
+        coefficient_sort = np.argsort(model.coef_)
+        sorted_features = self.forest.output_features[coefficient_sort][-n:]
+        sorted_coefficients = model.coef_[coefficient_sort][-n:]
+
+        return sorted_features,sorted_coefficients
 
     def leaf_encoding(self):
         leaves = self.forest.leaves()
