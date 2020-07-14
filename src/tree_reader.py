@@ -2161,6 +2161,19 @@ class Forest:
             coordinates = np.zeros((len(self.split_clusters),len(features)))
             for i,split_cluster in enumerate(self.split_clusters):
                 for j,feature in enumerate(features):
+                    coordinates[i,j] = split_cluster.feature_mean_additive(feature)
+        return coordinates
+
+
+    def split_cluster_mean_matrix(self,features=None):
+        if features is None:
+            coordinates = np.zeros((len(self.split_clusters),len(self.output_features)))
+            for i,split_cluster in enumerate(self.split_clusters):
+                coordinates[i] = np.mean(self.mean_matrix(split_cluster.nodes),axis=0)
+        else:
+            coordinates = np.zeros((len(self.split_clusters),len(features)))
+            for i,split_cluster in enumerate(self.split_clusters):
+                for j,feature in enumerate(features):
                     coordinates[i,j] = split_cluster.feature_mean(feature)
         return coordinates
 
@@ -2563,12 +2576,14 @@ class Forest:
             # np.diag(distances) = 0
             distances[:,-1] = 0
         elif mode == "means":
-            mean_matrix = self.split_cluster_feature_matrix()
+            mean_matrix = self.split_cluster_mean_matrix()
             domain_matrix = self.split_cluster_domain_mean_matrix()
+            print(mean_matrix)
+            print(domain_matrix)
             distances = 1. - cdist(mean_matrix,domain_matrix,metric="cosine")
+            print(distances)
             print(distances.shape)
-            Exception()
-            # distances = squareform(1. - cdist(mean_matrix,domain_matrix,metric="cosine"))
+            # distances = squareform(1. - pdist(mean_matrix,domain_matrix,metric="cosine"))
         elif mode == "samples":
             cluster_values = np.array([c.sample_scores() for c in self.split_clusters])
             distances = squareform(1. - pdist(cluster_values,metric="cosine"))
