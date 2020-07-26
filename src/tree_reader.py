@@ -2889,6 +2889,14 @@ class Forest:
             matrix[:,i] = cluster.sister_scores()
         return matrix
 
+    def local_correlations(self):
+
+        additive_gains = self.additive_mean_gains(self.nodes())
+        local_correlations = np.corrcoef(additive_gains.T)
+
+        return local_correlations
+
+
 
 class Prediction:
 
@@ -2960,12 +2968,6 @@ class Prediction:
             predicted_factors[:,i] = self.forest.split_clusters[i].predict_sister_scores(predicted_encoding)
         return predicted_factors
 
-    def local_correlations(self):
-
-        additive_gains = self.additive_mean_gains(self.nodes())
-        local_correlations = np.corrcoef(additive_gains.T)
-
-        return local_correlations
 
 
 class TruthDictionary:
