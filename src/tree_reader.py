@@ -2892,7 +2892,7 @@ class Forest:
     def local_correlations(self):
 
         additive_gains = self.mean_additive_matrix(self.nodes())
-        local_correlations = np.corrcoef(additive_gains.T)
+        local_correlations = np.corrcoef(additive_gains)
 
         return local_correlations
 
