@@ -1846,6 +1846,7 @@ class Forest:
             aggregate = (own_distance + sister_distance) / 2
 
             # aggregate = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
+            print("Calling smooth density gradient")
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
         else:
             representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
@@ -3711,7 +3712,7 @@ def coocurrence_matrix(sample_encoding):
 #         co_mtx += intersect.astype(dtype=int)
 #     return co_mtx
 
-    co_mtx = np.matmul(sample_encoding.astype(dtype=int),sample_encoding.T.astype(dtype=int)).astype(dtype=bool)
+    co_mtx = np.matmul(sample_encoding.astype(dtype=int),sample_encoding.T.astype(dtype=int))
 
     print(co_mtx.shape)
 
@@ -3780,23 +3781,55 @@ def node_gain_table(nodes,forest):
                 print(node.absolute_gains)
     return node_gain_table
 #
-def hacked_louvain(nodes,samples):
+def hacked_louvain(node_encoding,k=5,resolution=1,metric="cosine"):
+    import louvain
+    import igraph as ig
+    from sklearn.neighbors import NearestNeighbors
 
-    node_encoding = node_sample_encoding(nodes,len(samples))
-    print("Louvain Encoding: {}".format(node_encoding.shape))
-    pre_computed_distance = coocurrence_distance(node_encoding.T)
-    print("Louvain Distances: {}".format(pre_computed_distance.shape))
-    sample_graph = nx.from_numpy_matrix(pre_computed_distance)
-    print("Louvain Cast To Graph")
-    least_spanning_tree = nx.minimum_spanning_tree(sample_graph)
-    print("Louvain Least Spanning Tree constructed")
-    part_dict = community.best_partition(least_spanning_tree)
-    print("Louvain Partition Done")
-    clustering = np.zeros(len(part_dict))
-    for i,sample in enumerate(samples):
-        clustering[i] = part_dict[int(sample)]
+    distance = squareform(pdist(node_encoding,metric=metric))
+    nbrs = NearestNeighbors(n_neighbors=k,metric='precomputed', algorithm='auto').fit(distance)
+    adjacency = nbrs.kneighbors_graph().toarray()
+
+    sources, targets = adjacency.nonzero()
+    weights = adjacency[sources, targets]
+    g = ig.Graph()
+    g.add_vertices(adjacency.shape[0])  # this adds adjacency.shape[0] vertices
+    g.add_edges(list(zip(sources, targets)))
+    try:
+        g.es['weight'] = weights
+    except:
+        pass
+    if g.vcount() != adjacency.shape[0]:
+        logg.warning(
+            f'The constructed graph has only {g.vcount()} nodes. '
+            'Your adjacency matrix contained redundant nodes.'
+        )
+
+    part = louvain.find_partition(g,partition_type=louvain.RBConfigurationVertexPartition,resolution_parameter=resolution)
+    clustering = np.zeros(node_encoding.shape[0])
+    for i in range(len(part)):
+        clustering[part[i]] = i
     print("Louvain: {}".format(clustering.shape))
     return clustering
+
+    #
+    # pre_computed_distance = squareform(pdist(node_encoding,metric=metric))
+    # print("Louvain Distances: {}".format(pre_computed_distance.shape))
+    # total_graph = nx.from_numpy_matrix(pre_computed_distance)
+    # print("Louvain Cast To Graph")
+    # graph = nx.minimum_spanning_tree(total_graph)
+    # print("Louvain Least Spanning Tree constructed")
+    # nbrs = NearestNeighbors(n_neighbors=k,metric='precomputed', algorithm='auto').fit(pre_computed_distance)
+    # matrix = nbrs.kneighbors_graph().toarray()
+    # graph = nx.from_numpy_matrix(pre_computed_distance)
+
+    # part_dict = community.best_partition(graph,resolution=resolution)
+    # print("Louvain Partition Done")
+    # clustering = np.zeros(len(part_dict))
+    # for s in range(node_encoding.shape[0]):
+    #     clustering[s] = part_dict[s]
+    # print("Louvain: {}".format(clustering.shape))
+    # return clustering
 
 # def embedded_hdbscan(coordinates):
 #
