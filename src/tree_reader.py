@@ -1845,13 +1845,14 @@ class Forest:
             # aggregate = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
             # print("Calling smooth density gradient")
             # labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
-            labels[stem_mask] = 1 + hacked_louvain(aggregate,precomputed=aggregate,k=k,resolution=resolution)
+            # labels[stem_mask] = 1 + hacked_louvain(representation,precomputed=aggregate,k=k,resolution=resolution)
         else:
             representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
-            labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
+            representation = squareform(pdist(representation,metric=metric))
 
         print("Calling smooth density gradient")
-        labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
+        # labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],precomputed=representation,metric=metric,**kwargs))
+        labels[stem_mask] = 1 + hacked_louvain(representation,precomputed=representation,k=k,resolution=resolution)
 
         for node,label in zip(nodes,labels):
             node.set_split_cluster(label)
