@@ -1817,7 +1817,7 @@ class Forest:
     def sdg_cluster_representation(representation,**kwargs):
         return np.array(sdg.fit_predict(representation,**kwargs))
 
-    def interpret_splits(self,override=False,mode='additive_mean',metric='cosine',pca=100,relatives=True,depth=6,**kwargs):
+    def interpret_splits(self,override=False,mode='additive_mean',metric='cosine',pca=100,relatives=True,resolution=1,k=5,depth=6,**kwargs):
 
         if pca > len(self.output_features):
             pca = len(self.output_features)
@@ -1833,25 +1833,25 @@ class Forest:
 
         if relatives:
             print("Relativistic distance (heh)")
-            own_representation = self.node_representation(nodes[stem_mask],mode=mode)
-            sister_representation = self.node_representation([n.sister() for n in nodes[stem_mask]],mode=mode)
-            # parent_representation = self.node_representation([n.parent for n in nodes[stem_mask]],mode=mode)
-            if pca:
-                own_representation = PCA(n_components=pca).fit_transform(own_representation)
-                sister_representation = PCA(n_components=pca).fit_transform(sister_representation)
+            own_representation = self.node_representation(nodes[stem_mask],mode=mode,pca=pca)
+            sister_representation = self.node_representation([n.sister() for n in nodes[stem_mask]],mode=mode,pca=pca)
+            # parent_representation = self.node_representation([n.parent for n in nodes[stem_mask]],mode=mode,pca=pca)
             own_distance = squareform(pdist(own_representation,metric=metric))
             sister_distance = squareform(pdist(sister_representation,metric=metric))
             # parent_distance = squareform(pdist(parent_representation,metric=metric))
             # aggregate = np.sqrt(own_distance * sister_distance)
-            aggregate = (own_distance + sister_distance) / 2
+            representation = (own_distance + sister_distance) / 2
 
             # aggregate = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
             # print("Calling smooth density gradient")
             # labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
-            labels[stem_mask] = 1 + hacked_louvain(aggregate,precomputed=aggregate,**kwargs)
+            labels[stem_mask] = 1 + hacked_louvain(aggregate,precomputed=aggregate,k=k,resolution=resolution)
         else:
             representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
+
+        print("Calling smooth density gradient")
+        labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
 
         for node,label in zip(nodes,labels):
             node.set_split_cluster(label)
