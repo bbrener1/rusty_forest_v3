@@ -1846,8 +1846,9 @@ class Forest:
             aggregate = (own_distance + sister_distance) / 2
 
             # aggregate = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
-            print("Calling smooth density gradient")
-            labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
+            # print("Calling smooth density gradient")
+            # labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
+            labels[stem_mask] = 1 + hacked_louvain(aggregate,precomputed=aggregate,**kwargs)
         else:
             representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
@@ -3781,12 +3782,15 @@ def node_gain_table(nodes,forest):
                 print(node.absolute_gains)
     return node_gain_table
 #
-def hacked_louvain(node_encoding,k=5,resolution=1,metric="cosine"):
+def hacked_louvain(node_encoding,precomputed=None,k=5,resolution=1,metric="cosine"):
     import louvain
     import igraph as ig
     from sklearn.neighbors import NearestNeighbors
 
-    distance = squareform(pdist(node_encoding,metric=metric))
+    if precomputed is not None:
+        distance = precomputed
+    else:
+        distance = squareform(pdist(node_encoding,metric=metric))
     nbrs = NearestNeighbors(n_neighbors=k,metric='precomputed', algorithm='auto').fit(distance)
     adjacency = nbrs.kneighbors_graph().toarray()
 
