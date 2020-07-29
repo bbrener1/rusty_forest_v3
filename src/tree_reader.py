@@ -3901,24 +3901,6 @@ def hacked_louvain(node_encoding, precomputed=None, k=5, resolution=1, weighted=
     print("Louvain: {}".format(clustering.shape))
     return clustering
 
-    #
-    # pre_computed_distance = squareform(pdist(node_encoding,metric=metric))
-    # print("Louvain Distances: {}".format(pre_computed_distance.shape))
-    # total_graph = nx.from_numpy_matrix(pre_computed_distance)
-    # print("Louvain Cast To Graph")
-    # graph = nx.minimum_spanning_tree(total_graph)
-    # print("Louvain Least Spanning Tree constructed")
-    # nbrs = NearestNeighbors(n_neighbors=k,metric='precomputed', algorithm='auto').fit(pre_computed_distance)
-    # matrix = nbrs.kneighbors_graph().toarray()
-    # graph = nx.from_numpy_matrix(pre_computed_distance)
-
-    # part_dict = community.best_partition(graph,resolution=resolution)
-    # print("Louvain Partition Done")
-    # clustering = np.zeros(len(part_dict))
-    # for s in range(node_encoding.shape[0]):
-    #     clustering[s] = part_dict[s]
-    # print("Louvain: {}".format(clustering.shape))
-    # return clustering
 
 # def embedded_hdbscan(coordinates):
 #
