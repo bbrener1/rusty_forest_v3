@@ -1872,7 +1872,7 @@ class Forest:
             # parent_representation = self.node_representation([n.parent for n in nodes[stem_mask]],mode=mode,pca=pca)
 
             print("Running double knn")
-            knn = double_fast_knn(own_representation, k=k)
+            knn = double_fast_knn(own_representation,sister_representation, k=k)
 
         else:
             representation = self.node_representation(
