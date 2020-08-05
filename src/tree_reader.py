@@ -1864,9 +1864,6 @@ class Forest:
         if relatives:
 
             print("Relativistic distance (heh)")
-            # Here we have to jump through a few hoops to produce sparse knn
-            # of our data. We must provide the KNN with a custom pairwise distance
-            # function
 
             own_representation = self.node_representation(
                 nodes[stem_mask], mode=mode, pca=pca)
@@ -1874,28 +1871,15 @@ class Forest:
                 [n.sister() for n in nodes[stem_mask]], mode=mode, pca=pca)
             # parent_representation = self.node_representation([n.parent for n in nodes[stem_mask]],mode=mode,pca=pca)
 
-            print("Defining lazy distance")
+            print("Running double knn")
+            knn = double_fast_knn(own_representation, k=k)
 
-            def lazy_distance(p1, p2, own_representation=own_representation, sister_representation=sister_representation):
-                own = cdist(own_representation[p1].reshape(
-                    (1, -1)), own_representation[p2].reshape((1, -1)), metric=metric)[0, 0]
-                sister = cdist(sister_representation[p1].reshape(
-                    (1, -1)), sister_representation[p2].reshape((1, -1)), metric=metric)[0, 0]
-                return (own + sister) / 2
-
-            print("Running knn")
-
-            knn = fast_knn(own_representation, k=k,
-                           distance_function=lazy_distance)
         else:
             representation = self.node_representation(
                 nodes, mode=mode, metric=None, pca=pca)
 
-            def lazy_distance(p1, p2, representation=representation):
-                return cdist(representation[p1].reshape((1, -1)), representation[p2].reshape((1, -1)), metric=metric)[0, 0]
-
-            knn = fast_knn(representation, k=k,
-                           distance_function=lazy_distance)
+            print("Running knn")
+            knn = fast_knn(representation, k=k)
 
         print("Calling clustering procedure")
         labels[stem_mask] = 1 + hacked_louvain(knn, resolution=resolution)
@@ -4109,66 +4093,159 @@ def text_rectangle(ax, text, rect, no_warp=True, color=None, edgecolor='b', line
     ax.add_artist(patch)
 
 
-def fast_knn(elements, k, metric='cosine',cdist=cdist,pdist=pdist):
-
+def fast_knn(elements, k, neighborhood_fraction=.01, metric='cosine'):
 
     nearest_neighbors = np.zeros((elements.shape[0],k))
     guarantee = np.zeros(elements.shape[0],dtype=bool)
 
-    neighborhood_size = max(k*3,int(elements.shape[0] / 100))
+    neighborhood_size = max(k*3,int(elements.shape[0] * neighborhood_fraction))
+    anchor_loops = 0
+    # failed_counter = 0
 
     while np.sum(guarantee) < guarantee.shape[0]:
 
-        print(np.sum(guarantee))
+        # print("Anchor loop")
+        # print(f"Failed counter:{failed_counter}")
+        # print("\n")
 
-        anchor = np.arange(guarantee.shape[0])[~guarantee][0]
-        anchor_distances = cdist(elements[anchor].reshape(1,-1),elements)[0]
+        anchor_loops += 1
+        # neighborhood_size += max(k*3,int(elements1.shape[0] * neighborhood_fraction))
 
-#         print(f"anchor:{anchor}")
+        available = np.arange(guarantee.shape[0])[~guarantee]
+        np.random.shuffle(available)
+        anchors = available[:int(guarantee.shape[0]/neighborhood_size)*3]
 
-        neighborhood = np.argpartition(anchor_distances,neighborhood_size)[:neighborhood_size]
-        anchor_local = np.where(neighborhood==anchor)[0]
+        for anchor in anchors:
+            print(f"Complete:{np.sum(guarantee)}\r",end='')
 
-#         print(neighborhood)
+            anchor_distances = cdist(elements[anchor].reshape(1,-1),elements,metric=metric)[0]
 
-        local_distances = squareform(pdist(elements[neighborhood]))
-        local_distances[np.identity(local_distances.shape[0],dtype=bool)] = float('inf')
+    #         print(f"anchor:{anchor}")
 
-        anchor_distances = local_distances[anchor_local]
+            neighborhood = np.argpartition(anchor_distances,neighborhood_size)[:neighborhood_size]
+            anchor_local = np.where(neighborhood==anchor)[0]
 
-#         print(local_distances)
+    #         print(neighborhood)
 
-        for i,sample in enumerate(neighborhood):
-            if not guarantee[sample]:
 
-#                 print(f"sample:{sample}")
+            local_distances = squareform(pdist(elements[neighborhood],metric=metric))
+            local_distances[np.identity(local_distances.shape[0],dtype=bool)] = float('inf')
 
-                best_neighbors_local = np.argpartition(local_distances[i],k)
-                best_neighbors = neighborhood[best_neighbors_local[:k]]
+            anchor_distances = local_distances[anchor_local]
 
-#                 print(f"best{best_neighbors}")
+    #         print(local_distances)
 
-                worst_best_local = best_neighbors_local[k]
-                worst_best_local_distance = local_distances[i,worst_best_local]
+            for i,sample in enumerate(neighborhood):
+                if not guarantee[sample]:
 
-                worst_local = np.argmax(local_distances[i])
-                anchor_to_worst = local_distances[anchor_local,worst_local]
+    #                 print(f"sample:{sample}")
 
-                anchor_distance = local_distances[anchor_local,i]
+                    best_neighbors_local = np.argpartition(local_distances[i],k)
+                    best_neighbors = neighborhood[best_neighbors_local[:k]]
 
-                criterion_distance = anchor_to_worst - anchor_distance
+    #                 print(f"best{best_neighbors}")
 
-#                 print(f"wbl:{worst_best_local_distance}")
-#                 print(f"cd:{criterion_distance}")
+                    worst_best_local = best_neighbors_local[k]
+                    worst_best_local_distance = local_distances[i,worst_best_local]
 
-                if worst_best_local_distance <= criterion_distance:
-                    continue
-                else:
-                    nearest_neighbors[sample] = best_neighbors
-                    guarantee[sample] = True
+                    worst_local = np.argmax(local_distances[i])
+                    anchor_to_worst = local_distances[anchor_local,worst_local]
+
+                    anchor_distance = local_distances[anchor_local,i]
+
+                    criterion_distance = anchor_to_worst - anchor_distance
+
+    #                 print(f"wbl:{worst_best_local_distance}")
+    #                 print(f"cd:{criterion_distance}")
+
+                    if worst_best_local_distance <= criterion_distance:
+                        # failed_counter += 1
+                        continue
+                    else:
+                        nearest_neighbors[sample] = best_neighbors
+                        guarantee[sample] = True
 
     return nearest_neighbors
 
+def double_fast_knn(elements1,elements2, k, neighborhood_fraction=.01, metric='cosine'):
+
+    if elements1.shape != elements2.shape:
+        raise Exception("Average metric knn inputs must be same size")
+
+    nearest_neighbors = np.zeros((elements1.shape[0],k))
+    guarantee = np.zeros(elements1.shape[0],dtype=bool)
+
+    neighborhood_size = max(k*3,int(elements1.shape[0] * neighborhood_fraction))
+    anchor_loops = 0
+    # failed_counter = 0
+
+    while np.sum(guarantee) < guarantee.shape[0]:
+
+        # print("Anchor loop")
+        # print(f"Failed counter:{failed_counter}")
+        # print("\n")
+
+        anchor_loops += 1
+        # neighborhood_size += max(k*3,int(elements1.shape[0] * neighborhood_fraction))
+
+        available = np.arange(guarantee.shape[0])[~guarantee]
+        np.random.shuffle(available)
+        anchors = available[:int(guarantee.shape[0]/neighborhood_size)*3]
+
+        for anchor in anchors:
+            print(f"Complete:{np.sum(guarantee)}\r",end='')
+
+            ad_1 = cdist(elements1[anchor].reshape(1,-1),elements1,metric=metric)[0]
+            ad_2 =  cdist(elements2[anchor].reshape(1,-1),elements2,metric=metric)[0]
+            anchor_distances = (ad_1 + ad_2) / 2
+
+    #         print(f"anchor:{anchor}")
+
+            neighborhood = np.argpartition(anchor_distances,neighborhood_size)[:neighborhood_size]
+            anchor_local = np.where(neighborhood==anchor)[0]
+
+    #         print(neighborhood)
+
+            ld_1 = squareform(pdist(elements1[neighborhood],metric=metric))
+            ld_2 = squareform(pdist(elements2[neighborhood],metric=metric))
+            local_distances = (ld_1 + ld_2) / 2
+            local_distances[np.identity(local_distances.shape[0],dtype=bool)] = float('inf')
+
+            anchor_distances = local_distances[anchor_local]
+
+    #         print(local_distances)
+
+            for i,sample in enumerate(neighborhood):
+                if not guarantee[sample]:
+
+    #                 print(f"sample:{sample}")
+
+                    best_neighbors_local = np.argpartition(local_distances[i],k)
+                    best_neighbors = neighborhood[best_neighbors_local[:k]]
+
+    #                 print(f"best{best_neighbors}")
+
+                    worst_best_local = best_neighbors_local[k]
+                    worst_best_local_distance = local_distances[i,worst_best_local]
+
+                    worst_local = np.argmax(local_distances[i])
+                    anchor_to_worst = local_distances[anchor_local,worst_local]
+
+                    anchor_distance = local_distances[anchor_local,i]
+
+                    criterion_distance = anchor_to_worst - anchor_distance
+
+    #                 print(f"wbl:{worst_best_local_distance}")
+    #                 print(f"cd:{criterion_distance}")
+
+                    if worst_best_local_distance <= criterion_distance:
+                        # failed_counter += 1
+                        continue
+                    else:
+                        nearest_neighbors[sample] = best_neighbors
+                        guarantee[sample] = True
+
+    return nearest_neighbors
 
 if __name__ != "__main__":
     import matplotlib as mpl
