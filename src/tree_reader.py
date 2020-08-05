@@ -3870,7 +3870,8 @@ def hacked_louvain(knn, resolution=1):
     g = ig.Graph()
     g.add_vertices(knn.shape[0])  # this adds adjacency.shape[0] vertices
     for s, t in enumerate(knn):
-        g.add_edges(list(zip(np.ones(t.shape) * s, t)))
+        # print(list(zip(np.ones(t.shape) * s, t)))
+        g.add_edges(list(zip(np.ones(t.shape,dtype=int) * s, t)))
 
     if g.vcount() != knn.shape[0]:
         logg.warning(
@@ -3880,7 +3881,7 @@ def hacked_louvain(knn, resolution=1):
 
     part = louvain.find_partition(
         g, partition_type=louvain.RBConfigurationVertexPartition, resolution_parameter=resolution)
-    clustering = np.zeros(node_encoding.shape[0])
+    clustering = np.zeros(knn.shape[0],dtype=int)
     for i in range(len(part)):
         clustering[part[i]] = i
     print("Louvain: {}".format(clustering.shape))
@@ -4095,7 +4096,7 @@ def text_rectangle(ax, text, rect, no_warp=True, color=None, edgecolor='b', line
 
 def fast_knn(elements, k, neighborhood_fraction=.01, metric='cosine'):
 
-    nearest_neighbors = np.zeros((elements.shape[0],k))
+    nearest_neighbors = np.zeros((elements.shape[0],k),dtype=int)
     guarantee = np.zeros(elements.shape[0],dtype=bool)
 
     neighborhood_size = max(k*3,int(elements.shape[0] * neighborhood_fraction))
@@ -4172,7 +4173,7 @@ def double_fast_knn(elements1,elements2, k, neighborhood_fraction=.01, metric='c
     if elements1.shape != elements2.shape:
         raise Exception("Average metric knn inputs must be same size")
 
-    nearest_neighbors = np.zeros((elements1.shape[0],k))
+    nearest_neighbors = np.zeros((elements1.shape[0],k),dtype=int)
     guarantee = np.zeros(elements1.shape[0],dtype=bool)
 
     neighborhood_size = max(k*3,int(elements1.shape[0] * neighborhood_fraction))
