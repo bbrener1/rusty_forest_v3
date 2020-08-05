@@ -1,3 +1,4 @@
+# import smooth_density_graph as sdg
 from scipy.cluster.hierarchy import dendrogram, linkage
 from sklearn.linear_model import Ridge, Lasso
 from scipy.spatial.distance import pdist, cdist
@@ -54,8 +55,6 @@ sdg_path = Path(__file__).parent.parent.absolute()
 sdg_path = str(sdg_path) + "/smooth_density_graph/"
 # print(f"Attempting to locate Smooth Density Graph in {sdg_path}")
 sys.path.append(sdg_path)
-
-import smooth_density_graph as sdg
 
 
 class Node:
@@ -1850,12 +1849,10 @@ class Forest:
     def sdg_cluster_representation(representation, **kwargs):
         return np.array(sdg.fit_predict(representation, **kwargs))
 
-    def interpret_splits(self, override=False, mode='additive_mean', metric='cosine', pca=100, relatives=True, resolution=1, k=5, weighted=False, depth=6, **kwargs):
+    def interpret_splits(self, override=False, mode='additive_mean', metric='cosine', pca=100, relatives=True, resolution=1, k=5, depth=6, **kwargs):
 
         if pca > len(self.output_features):
             pca = len(self.output_features)
-
-        from sklearn.manifold import MDS
 
         nodes = np.array(self.nodes(root=True, depth=depth))
 
@@ -1865,27 +1862,43 @@ class Forest:
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
         if relatives:
+
             print("Relativistic distance (heh)")
+            # Here we have to jump through a few hoops to produce sparse knn
+            # of our data. We must provide the KNN with a custom pairwise distance
+            # function
+
             own_representation = self.node_representation(
                 nodes[stem_mask], mode=mode, pca=pca)
             sister_representation = self.node_representation(
                 [n.sister() for n in nodes[stem_mask]], mode=mode, pca=pca)
             # parent_representation = self.node_representation([n.parent for n in nodes[stem_mask]],mode=mode,pca=pca)
-            own_distance = squareform(pdist(own_representation, metric=metric))
-            sister_distance = squareform(
-                pdist(sister_representation, metric=metric))
-            # parent_distance = squareform(pdist(parent_representation,metric=metric))
-            representation = (own_distance + sister_distance) / 2
 
+            print("Defining lazy distance")
+
+            def lazy_distance(p1, p2, own_representation=own_representation, sister_representation=sister_representation):
+                own = cdist(own_representation[p1].reshape(
+                    (1, -1)), own_representation[p2].reshape((1, -1)), metric=metric)[0, 0]
+                sister = cdist(sister_representation[p1].reshape(
+                    (1, -1)), sister_representation[p2].reshape((1, -1)), metric=metric)[0, 0]
+                return (own + sister) / 2
+
+            print("Running knn")
+
+            knn = fast_knn(own_representation, k=k,
+                           distance_function=lazy_distance)
         else:
             representation = self.node_representation(
                 nodes, mode=mode, metric=None, pca=pca)
-            representation = squareform(pdist(representation, metric=metric))
+
+            def lazy_distance(p1, p2, representation=representation):
+                return cdist(representation[p1].reshape((1, -1)), representation[p2].reshape((1, -1)), metric=metric)[0, 0]
+
+            knn = fast_knn(representation, k=k,
+                           distance_function=lazy_distance)
 
         print("Calling clustering procedure")
-        # labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],precomputed=representation,metric=metric,**kwargs))
-        labels[stem_mask] = 1 + hacked_louvain(
-            representation, precomputed=representation, k=k, resolution=resolution, weighted=weighted)
+        labels[stem_mask] = 1 + hacked_louvain(knn, resolution=resolution)
 
         for node, label in zip(nodes, labels):
             node.set_split_cluster(label)
@@ -2484,13 +2497,16 @@ class Forest:
         cluster_populations = [len(c.nodes) for c in self.split_clusters]
         total_nodes = np.sum(cluster_populations)
 
-        downstream_frequency = np.ones((len(self.split_clusters), len(self.split_clusters)))
-        nephew_frequency = np.ones((len(self.split_clusters), len(self.split_clusters)))
+        downstream_frequency = np.ones(
+            (len(self.split_clusters), len(self.split_clusters)))
+        nephew_frequency = np.ones(
+            (len(self.split_clusters), len(self.split_clusters)))
 
         for cluster in self.split_clusters[1:]:
 
             children = cluster.children()
-            nephews = cluster.sisters() + [s.nodes() for s in cluster.sisters()]
+            nephews = cluster.sisters() + [s.nodes()
+                                           for s in cluster.sisters()]
 
             for child in children:
                 if hasattr(child, 'split_cluster'):
@@ -2506,7 +2522,6 @@ class Forest:
         odds_ratio = downstream_frequency / nephew_frequency
 
         return odds_ratio
-
 
     def conditional_split_probability(self):
 
@@ -2597,7 +2612,7 @@ class Forest:
             # np.diag(distances) = 0
             distances[:, -1] = 0
         elif mode == "odds_ratio":
-            distance = 1./self.split_cluster_odds_ratios()
+            distance = 1. / self.split_cluster_odds_ratios()
         elif mode == "dependence":
             distance = self.partial_dependence()
         elif mode == "means":
@@ -3863,30 +3878,16 @@ def node_gain_table(nodes, forest):
 #
 
 
-def hacked_louvain(node_encoding, precomputed=None, k=5, resolution=1, weighted=False, metric="cosine"):
+def hacked_louvain(knn, resolution=1):
     import louvain
     import igraph as ig
     from sklearn.neighbors import NearestNeighbors
 
-    if precomputed is not None:
-        distance = precomputed
-    else:
-        distance = squareform(pdist(node_encoding, metric=metric))
-    nbrs = NearestNeighbors(
-        n_neighbors=k, metric='precomputed', algorithm='auto').fit(distance)
-    adjacency = nbrs.kneighbors_graph().toarray()
-    if weighted:
-        adjacency[np.nonzero(adjacency)] = 1 / (1 + distance[np.nonzero(adjacency)])
-
-    sources, targets = adjacency.nonzero()
-    weights = adjacency[sources, targets]
     g = ig.Graph()
     g.add_vertices(adjacency.shape[0])  # this adds adjacency.shape[0] vertices
-    g.add_edges(list(zip(sources, targets)))
-    try:
-        g.es['weight'] = weights
-    except:
-        pass
+    for s, t in enumerate(knn):
+        g.add_edges(list(zip(np.ones(t.shape) * s, t)))
+
     if g.vcount() != adjacency.shape[0]:
         logg.warning(
             f'The constructed graph has only {g.vcount()} nodes. '
@@ -4005,6 +4006,13 @@ def count_list_elements(elements):
     return dict
 
 
+def triangulate_knn(elements, k):
+
+    distances = {}
+
+    anchor = 0
+
+
 def generate_feature_value_html(features, values, normalization=None, cmap=None):
 
     if not isinstance(cmap, mpl.colors.Colormap):
@@ -4099,6 +4107,67 @@ def text_rectangle(ax, text, rect, no_warp=True, color=None, edgecolor='b', line
                                color=color, edgecolor=edgecolor, linewidth=linewidth, **kwargs)
 
     ax.add_artist(patch)
+
+
+def fast_knn(elements, k, metric='cosine',cdist=cdist,pdist=pdist):
+
+
+    nearest_neighbors = np.zeros((elements.shape[0],k))
+    guarantee = np.zeros(elements.shape[0],dtype=bool)
+
+    neighborhood_size = max(k*3,int(elements.shape[0] / 100))
+
+    while np.sum(guarantee) < guarantee.shape[0]:
+
+        print(np.sum(guarantee))
+
+        anchor = np.arange(guarantee.shape[0])[~guarantee][0]
+        anchor_distances = cdist(elements[anchor].reshape(1,-1),elements)[0]
+
+#         print(f"anchor:{anchor}")
+
+        neighborhood = np.argpartition(anchor_distances,neighborhood_size)[:neighborhood_size]
+        anchor_local = np.where(neighborhood==anchor)[0]
+
+#         print(neighborhood)
+
+        local_distances = squareform(pdist(elements[neighborhood]))
+        local_distances[np.identity(local_distances.shape[0],dtype=bool)] = float('inf')
+
+        anchor_distances = local_distances[anchor_local]
+
+#         print(local_distances)
+
+        for i,sample in enumerate(neighborhood):
+            if not guarantee[sample]:
+
+#                 print(f"sample:{sample}")
+
+                best_neighbors_local = np.argpartition(local_distances[i],k)
+                best_neighbors = neighborhood[best_neighbors_local[:k]]
+
+#                 print(f"best{best_neighbors}")
+
+                worst_best_local = best_neighbors_local[k]
+                worst_best_local_distance = local_distances[i,worst_best_local]
+
+                worst_local = np.argmax(local_distances[i])
+                anchor_to_worst = local_distances[anchor_local,worst_local]
+
+                anchor_distance = local_distances[anchor_local,i]
+
+                criterion_distance = anchor_to_worst - anchor_distance
+
+#                 print(f"wbl:{worst_best_local_distance}")
+#                 print(f"cd:{criterion_distance}")
+
+                if worst_best_local_distance <= criterion_distance:
+                    continue
+                else:
+                    nearest_neighbors[sample] = best_neighbors
+                    guarantee[sample] = True
+
+    return nearest_neighbors
 
 
 if __name__ != "__main__":
