@@ -3868,11 +3868,11 @@ def hacked_louvain(knn, resolution=1):
     from sklearn.neighbors import NearestNeighbors
 
     g = ig.Graph()
-    g.add_vertices(adjacency.shape[0])  # this adds adjacency.shape[0] vertices
+    g.add_vertices(knn.shape[0])  # this adds adjacency.shape[0] vertices
     for s, t in enumerate(knn):
         g.add_edges(list(zip(np.ones(t.shape) * s, t)))
 
-    if g.vcount() != adjacency.shape[0]:
+    if g.vcount() != knn.shape[0]:
         logg.warning(
             f'The constructed graph has only {g.vcount()} nodes. '
             'Your adjacency matrix contained redundant nodes.'
