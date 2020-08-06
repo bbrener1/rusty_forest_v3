@@ -1872,14 +1872,14 @@ class Forest:
             # parent_representation = self.node_representation([n.parent for n in nodes[stem_mask]],mode=mode,pca=pca)
 
             print("Running double knn")
-            knn = double_fast_knn(own_representation,sister_representation, k=k)
+            knn = double_fast_knn(own_representation,sister_representation, k=k,metric=metric)
 
         else:
             representation = self.node_representation(
                 nodes, mode=mode, metric=None, pca=pca)
 
             print("Running knn")
-            knn = fast_knn(representation, k=k)
+            knn = fast_knn(representation, k=k,metric=metric)
 
         print("Calling clustering procedure")
         labels[stem_mask] = 1 + hacked_louvain(knn, resolution=resolution)
@@ -3869,9 +3869,13 @@ def hacked_louvain(knn, resolution=1):
 
     g = ig.Graph()
     g.add_vertices(knn.shape[0])  # this adds adjacency.shape[0] vertices
-    for s, t in enumerate(knn):
-        # print(list(zip(np.ones(t.shape) * s, t)))
-        g.add_edges(list(zip(np.ones(t.shape,dtype=int) * s, t)))
+    edges = [(s,t) for s in range(knn.shape[0]) for t in knn[s]]
+    # for s, t in enumerate(knn):
+    #     # print(list(zip(np.ones(t.shape) * s, t)))
+    #     if s%100 == 0:
+    #         print(f"Adding edges: {s}\r",end='')
+    #     g.add_edges(list(zip(np.ones(t.shape,dtype=int) * s, t)))
+    g.add_edges(edges)
 
     if g.vcount() != knn.shape[0]:
         logg.warning(
@@ -3879,6 +3883,7 @@ def hacked_louvain(knn, resolution=1):
             'Your adjacency matrix contained redundant nodes.'
         )
 
+    print("Searching for partition")
     part = louvain.find_partition(
         g, partition_type=louvain.RBConfigurationVertexPartition, resolution_parameter=resolution)
     clustering = np.zeros(knn.shape[0],dtype=int)
@@ -4101,16 +4106,10 @@ def fast_knn(elements, k, neighborhood_fraction=.01, metric='cosine'):
 
     neighborhood_size = max(k*3,int(elements.shape[0] * neighborhood_fraction))
     anchor_loops = 0
-    # failed_counter = 0
 
     while np.sum(guarantee) < guarantee.shape[0]:
 
-        # print("Anchor loop")
-        # print(f"Failed counter:{failed_counter}")
-        # print("\n")
-
         anchor_loops += 1
-        # neighborhood_size += max(k*3,int(elements1.shape[0] * neighborhood_fraction))
 
         available = np.arange(guarantee.shape[0])[~guarantee]
         np.random.shuffle(available)
@@ -4121,30 +4120,20 @@ def fast_knn(elements, k, neighborhood_fraction=.01, metric='cosine'):
 
             anchor_distances = cdist(elements[anchor].reshape(1,-1),elements,metric=metric)[0]
 
-    #         print(f"anchor:{anchor}")
 
             neighborhood = np.argpartition(anchor_distances,neighborhood_size)[:neighborhood_size]
             anchor_local = np.where(neighborhood==anchor)[0]
-
-    #         print(neighborhood)
-
 
             local_distances = squareform(pdist(elements[neighborhood],metric=metric))
             local_distances[np.identity(local_distances.shape[0],dtype=bool)] = float('inf')
 
             anchor_distances = local_distances[anchor_local]
 
-    #         print(local_distances)
-
             for i,sample in enumerate(neighborhood):
                 if not guarantee[sample]:
 
-    #                 print(f"sample:{sample}")
-
                     best_neighbors_local = np.argpartition(local_distances[i],k)
                     best_neighbors = neighborhood[best_neighbors_local[:k]]
-
-    #                 print(f"best{best_neighbors}")
 
                     worst_best_local = best_neighbors_local[k]
                     worst_best_local_distance = local_distances[i,worst_best_local]
@@ -4156,15 +4145,12 @@ def fast_knn(elements, k, neighborhood_fraction=.01, metric='cosine'):
 
                     criterion_distance = anchor_to_worst - anchor_distance
 
-    #                 print(f"wbl:{worst_best_local_distance}")
-    #                 print(f"cd:{criterion_distance}")
-
                     if worst_best_local_distance <= criterion_distance:
-                        # failed_counter += 1
                         continue
                     else:
                         nearest_neighbors[sample] = best_neighbors
                         guarantee[sample] = True
+    print("\n")
 
     return nearest_neighbors
 
@@ -4245,6 +4231,8 @@ def double_fast_knn(elements1,elements2, k, neighborhood_fraction=.01, metric='c
                     else:
                         nearest_neighbors[sample] = best_neighbors
                         guarantee[sample] = True
+
+    print("\n")
 
     return nearest_neighbors
 
