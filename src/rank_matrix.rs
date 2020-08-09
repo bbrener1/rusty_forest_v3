@@ -7,7 +7,7 @@ use crate::ArgMinMax;
 use num_traits::NumCast;
 use rayon::prelude::*;
 
-pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>,sfr:f64,l:i32) -> Option<(usize,usize)> {
+pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>,sfr:f64,l:i32) -> Option<(usize,usize,f64)> {
 
     // println!("Splitting {:?},{:?}", input.dim(),output.dim());
 
@@ -65,7 +65,7 @@ pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>
     // println!("Split successful");
     // println!("{},{}",feature,sample);
 
-    Some((*feature,*sample))
+    Some((*feature,*sample,*dispersion))
 }
 
 

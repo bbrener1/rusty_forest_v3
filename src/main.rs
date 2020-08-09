@@ -36,6 +36,7 @@ use std::ops::{SubAssign,AddAssign};
 use std::iter::Sum;
 use std::sync::Arc;
 use std::convert::Into;
+use std::collections::BTreeMap;
 
 use ndarray::prelude::*;
 use ndarray::{LinalgScalar};
@@ -66,11 +67,21 @@ fn main() {
             let mut root = FastNode::from_forest(&forest);
             println!("Computing tree {:?}",i);
 
+            let mut leaf_splits: Vec<(&mut FastNode<f64>,(SampleFilter<InputFeatureUF<f64>>,SampleFilter<InputFeatureUF<f64>>),f64)> = vec![];
+
+            leaf_splits.push(root.best_reduced_split(false,true));
             // if let Some(mut sidxn) = root.double_reduce(0).map(|fast_n| fast_n.to_sidxn()) {
             //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
             // }
-            if let Some(mut sidxn) = root.reduced_split(0).map(|fast_n| fast_n.to_sidxn()) {
-                sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
+            for j in 0..50 {
+                let best_index = leaf_splits.iter().map(|(_,_,d)| d).argmin_v().unwrap().0;
+                let (node,(left,right),dispersion) = leaf_splits.remove(best_index);
+                if let Some((left_child,right_child)) = node.split(left,right) {
+                    let left_split = left_child.best_reduced_split(false,true);
+                    let right_split = right_child.best_reduced_split(false,true);
+                    leaf_splits.push(left_split);
+                    leaf_splits.push(right_split);
+                };
             }
             // if let Some(mut sidxn) = root.split(0).map(|fast_n| fast_n.to_sidxn()) {
             //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
