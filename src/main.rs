@@ -61,34 +61,43 @@ fn main() {
     println!("Starting loop");
 
     (0..tree_limit)
-        // .into_iter()
-        .into_par_iter()
-        .map(|i| {
+        .into_iter()
+        // .into_par_iter()
+        .flat_map(|i| {
             let mut root = FastNode::from_forest(&forest);
             println!("Computing tree {:?}",i);
+            println!("#######################");
 
             let mut leaf_splits: Vec<(&mut FastNode<f64>,(SampleFilter<InputFeatureUF<f64>>,SampleFilter<InputFeatureUF<f64>>),f64)> = vec![];
+            if let Some(root_split) = root.best_reduced_split(false,true) {
+                leaf_splits.push(root_split)
+            }
+            else { return None }
 
-            leaf_splits.push(root.best_reduced_split(false,true));
-            // if let Some(mut sidxn) = root.double_reduce(0).map(|fast_n| fast_n.to_sidxn()) {
-            //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
-            // }
-            for j in 0..50 {
-                let best_index = leaf_splits.iter().map(|(_,_,d)| d).argmin_v().unwrap().0;
-                let (node,(left,right),dispersion) = leaf_splits.remove(best_index);
-                if let Some((left_child,right_child)) = node.split(left,right) {
-                    let left_split = left_child.best_reduced_split(false,true);
-                    let right_split = right_child.best_reduced_split(false,true);
-                    leaf_splits.push(left_split);
-                    leaf_splits.push(right_split);
+            println!("Initial candidates computed");
+
+            for j in 0..forest.parameters().max_splits {
+                println!("candidates:{:?}",leaf_splits.len());
+                if let Some((best_index,_)) = leaf_splits.iter().map(|(_,_,d)| d).argmin_v() {
+                    println!("Found best split {:?}",best_index);
+                    let (node,(left,right),_) = leaf_splits.remove(best_index);
+                    if let Some(stem) = node.split(left,right) {
+                        let (left_slice,right_slice) = stem.mut_children().split_at_mut(1);
+                        println!("First best");
+                        let left_split = left_slice[0].best_reduced_split(false,true);
+                        println!("Second best");
+                        let right_split = right_slice[0].best_reduced_split(false,true);
+                        leaf_splits.extend(left_split);
+                        leaf_splits.extend(right_split);
+                    };
                 };
             }
-            // if let Some(mut sidxn) = root.split(0).map(|fast_n| fast_n.to_sidxn()) {
-            //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
-            // }
 
+            root.to_sidxn().dump(format!("{}.{}.compact",report_address,i).as_str());
+            Some(())
         })
-        .collect::<Vec<()>>();
+        .for_each(drop);
+        // .collect::<Vec<()>>();
 
 
     // println!("CHILDREN:{:?}",children);

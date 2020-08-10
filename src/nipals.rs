@@ -66,10 +66,11 @@ impl Projector {
         }
     }
 
-    pub fn calculate_projection(&mut self) -> (Array1<f64>,Array1<f64>,Array1<f64>,Array1<f64>) {
+    pub fn calculate_projection(&mut self) -> Option<(Array1<f64>,Array1<f64>,Array1<f64>,Array1<f64>)> {
         self.scores.fill(1.);
         self.loadings.fill(1.);
-        loop {
+        for _ in 0..10000 {
+        // loop {
             self.scores = self.converted.t().dot(&self.loadings);
             let new_norm = (self.scores.iter().map(|x| x.powi(2)).sum::<f64>()).sqrt();
             let delta = (self.score_norm - new_norm).abs();
@@ -78,14 +79,15 @@ impl Projector {
                 self.scores *= -1.;
                 self.loadings *= -1.;
                 self.converted -= &outer(&self.loadings,&self.scores);
-                return (self.loadings.clone(),self.scores.clone(),self.means.clone(),self.scale_factors.clone())
+                return Some((self.loadings.clone(),self.scores.clone(),self.means.clone(),self.scale_factors.clone()))
             }
             else {self.score_norm = new_norm};
             self.loadings = self.converted.dot(&self.scores);
         }
+        None
     }
 
-    pub fn calculate_n_projections(mut self,n:usize) -> (Array2<f64>,Array2<f64>,Array2<f64>,Array2<f64>) {
+    pub fn calculate_n_projections(mut self,n:usize) -> Option<(Array2<f64>,Array2<f64>,Array2<f64>,Array2<f64>)> {
         let mut loadings = Array2::zeros((n,self.converted.dim().0));
         let mut scores = Array2::zeros((n,self.converted.dim().1));
         let mut means = Array2::zeros((n,self.converted.dim().1));
@@ -93,13 +95,13 @@ impl Projector {
         for i in 0..n {
             // println!("Projection {:?}",i);
             // println!("{:?}",self);
-            let (n_loadings,n_scores,n_means,n_scale_factors)= self.calculate_projection();
+            let (n_loadings,n_scores,n_means,n_scale_factors)= self.calculate_projection()?;
             loadings.row_mut(i).assign(&n_loadings);
             scores.row_mut(i).assign(&n_scores);
             means.row_mut(i).assign(&n_means);
             scale_factors.row_mut(i).assign(&n_scale_factors);
         }
-        (loadings,scores,means,scale_factors)
+        Some((loadings,scores,means,scale_factors))
     }
 
 }

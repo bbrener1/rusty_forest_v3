@@ -63,25 +63,29 @@ pub trait ComputeNode<'a>: Node<'a>
     fn derive(&self,SampleFilter<Self::InputFeature>) -> Option<Self>;
     fn derive_scaled(&self,SampleFilter<Self::InputFeature>) -> Option<Self>;
 
-    fn subsample(&self) -> (Vec<Self::InputFeature>,Vec<Self::OutputFeature>,Vec<Self::Sample>,Array2<Self::Value>,Array2<Self::Value>) {
+    fn subsample(&self) -> Option<(Vec<Self::InputFeature>,Vec<Self::OutputFeature>,Vec<Self::Sample>,Array2<Self::Value>,Array2<Self::Value>)> {
         let input_feature_subsample: Vec<Self::InputFeature> = self.forest().subsample_input_features();
         let output_feature_subsample: Vec<Self::OutputFeature> = self.forest().subsample_output_features();
         let (in_bag,out_bag) = self.sample_bags();
         let sample_subsample = subsample(&in_bag, self.forest().parameters().sample_subsample);
 
+        if in_bag.len() < 3 {
+            return None
+        }
+
         let input_intermediate = self.prototype().double_select_input(&sample_subsample,&input_feature_subsample);
         let output_intermediate = self.prototype().double_select_output(&sample_subsample,&output_feature_subsample);
 
-        (
+        Some((
             input_feature_subsample,
             output_feature_subsample,
             sample_subsample,
             input_intermediate,
             output_intermediate
-        )
+        ))
     }
 
-    fn best_split(&mut self) -> (&mut Self, (SampleFilter<Self::InputFeature>,SampleFilter<Self::InputFeature>),f64) {
+    fn best_split(&mut self) -> Option<(&mut Self, (SampleFilter<Self::InputFeature>,SampleFilter<Self::InputFeature>),f64)> {
 
         let (
                 input_feature_subsample,
@@ -89,7 +93,7 @@ pub trait ComputeNode<'a>: Node<'a>
                 sample_subsample,
                 input_intermediate,
                 output_intermediate
-            ) = self.subsample();
+            ) = self.subsample()?;
 
         let (best_feature_index,best_sample_index,best_dispersion) =
             mtx_split(
@@ -97,7 +101,7 @@ pub trait ComputeNode<'a>: Node<'a>
                 &output_intermediate,
                 self.parameters().split_fraction_regularization,
                 self.parameters().norm_mode.int()
-            ).unwrap();
+            )?;
 
         let (best_feature,best_sample) = (
             input_feature_subsample[best_feature_index].clone(),
@@ -107,21 +111,23 @@ pub trait ComputeNode<'a>: Node<'a>
         let (left_filter,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
 
 
-        (self,(left_filter,right_filter),best_dispersion)
+        Some((self,(left_filter,right_filter),best_dispersion))
     }
 
-    fn best_reduced_split(&mut self,reduce_input:bool,reduce_output:bool) -> (&mut Self, (SampleFilter<Self::InputFeature>,SampleFilter<Self::InputFeature>),f64) {
+    fn best_reduced_split(&mut self,reduce_input:bool,reduce_output:bool) -> Option<(&mut Self, (SampleFilter<Self::InputFeature>,SampleFilter<Self::InputFeature>),f64)> {
         use num_traits::{NumCast};
+
+        println!("Reducing");
 
         let mut input_reduction: Option<Reduction<Self::InputFeature>> = None;
 
         let (
                 input_feature_subsample,
-                _,
+                output_feature_subsample,
                 sample_subsample,
                 input_intermediate,
                 output_intermediate
-            ) = self.subsample();
+            ) = self.subsample()?;
 
 
         let reduced_input =
@@ -132,7 +138,7 @@ pub trait ComputeNode<'a>: Node<'a>
                     input_scores,
                     input_means,
                     input_scales
-                ) = Projector::from(input_intermediate).calculate_n_projections(1);
+                ) = Projector::from(input_intermediate).calculate_n_projections(1)?;
 
                 if self.parameters().scaling {
                     reduced_input /= &input_scales;
@@ -143,7 +149,7 @@ pub trait ComputeNode<'a>: Node<'a>
                        input_scores.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect(),
                        input_means.into_iter().map(|s| NumCast::from(*s).expect("Cast failure")).collect()
                    ));
-                reduced_input
+                reduced_input.t().to_owned()
             }
             else {
                 input_intermediate.mapv(|v| NumCast::from(v).expect("Cast failure"))
@@ -153,15 +159,17 @@ pub trait ComputeNode<'a>: Node<'a>
             if reduce_output {
                 let (mut r_o,_,_,o_s) =
                     Projector::from(output_intermediate)
-                        .calculate_n_projections(self.parameters().braid_thickness);
+                        .calculate_n_projections(self.parameters().braid_thickness)?;
                 if self.parameters().scaling {
                     r_o /= &o_s;
                 };
-                r_o
+                r_o.t().to_owned()
             }
             else {
                 output_intermediate.mapv(|v| NumCast::from(v).expect("Cast failure"))
             };
+
+        println!("Features reduced");
 
         let (best_feature_index,best_sample_index,best_dispersion) =
             mtx_split(
@@ -169,42 +177,47 @@ pub trait ComputeNode<'a>: Node<'a>
                 &reduced_output,
                 self.parameters().split_fraction_regularization,
                 self.parameters().norm_mode.int()
-            ).unwrap();
+            )?;
+
+        if best_sample_index < 2 || best_sample_index > (sample_subsample.len() - 2) {
+            return None
+        }
 
         let (best_feature,best_sample) = (
             input_feature_subsample[best_feature_index].clone(),
             sample_subsample[best_sample_index].clone()
         );
 
+        // println!("Computing filters");
 
         let (left_filter,right_filter) =
             if reduce_input {
-                SampleFilter::from_feature_sample(&best_feature, &best_sample)
-            }
-            else {
-                let ir_u = input_reduction.unwrap();
+                let ir_u = input_reduction?;
                 let split = ir_u.transform_sample_scaled(&best_sample);
                 SampleFilter::from_reduction(ir_u, split)
+            }
+            else {
+                SampleFilter::from_feature_sample(&best_feature, &best_sample)
             };
 
+        println!("Filters done, returning");
 
-        (self,(left_filter,right_filter),best_dispersion)
+        Some((self,(left_filter,right_filter),best_dispersion))
     }
 
-    fn split(&mut self,left_filter:SampleFilter<Self::InputFeature>,right_filter:SampleFilter<Self::InputFeature>) -> Option<(&mut Self,&mut Self)> {
+    fn split(&mut self,left_filter:SampleFilter<Self::InputFeature>,right_filter:SampleFilter<Self::InputFeature>) -> Option<&mut Self> {
+
+        println!("Deriving");
 
         if let (Some(left_child),Some(right_child)) = (self.derive(left_filter),self.derive(right_filter)) {
 
             self.mut_children().push(left_child);
             self.mut_children().push(right_child);
 
-            if let [ref mut lcp,ref mut rcp] = self.mut_children()[0..1] {
-                Some((lcp,rcp))
-            }
-            else { None }
+            Some(self)
 
         }
-        else { None }
+        else { println!("Failed to derive"); None }
     }
 
 
@@ -315,8 +328,9 @@ impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {
 
 impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
     fn derive(&self,filter:SampleFilter<InputFeatureUF<V>>) -> Option<FastNode<'a,V>> {
+        println!("Filtering {:?}",self.samples.len());
         let new_samples = filter.filter_samples(&self.samples);
-        if new_samples.len() > 0 {
+        if new_samples.len() > 2 {
             Some(FastNode {
                 samples: new_samples,
                 forest: self.forest,
@@ -329,8 +343,9 @@ impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
     }
 
     fn derive_scaled(&self,filter:SampleFilter<InputFeatureUF<V>>) -> Option<FastNode<'a,V>> {
+        println!("Filtering {:?}",self.samples.len());
         let new_samples = filter.filter_samples_scaled(&self.samples);
-        if new_samples.len() > 0 {
+        if new_samples.len() > 2 {
             Some(FastNode {
                 samples: new_samples,
                 forest: self.forest,

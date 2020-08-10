@@ -104,6 +104,7 @@ where
     pub tree_limit: usize,
     pub leaf_size_cutoff: usize,
     pub depth_cutoff: usize,
+    pub max_splits: usize,
     pub dropout: DropMode,
 
     pub feature_subsample: usize,
@@ -251,6 +252,9 @@ pub fn read<V:SampleValue,T: Iterator<Item = String>>(args: &mut T) -> Parameter
             "-depth" => {
                 arg_struct.depth_cutoff = args.next().expect("Error processing depth").parse::<usize>().expect("Error parsing depth");
             }
+            "-max_splits" => {
+                arg_struct.max_splits = args.next().expect("Error processing max_splits").parse::<usize>().expect("Error parsing max_splits");
+            }
             "-if" | "-ifs" | "-in_features" | "-in_feature_subsample" | "-input_feature_subsample" => {
                 arg_struct.input_feature_subsample = args.next().expect("Error processing in feature arg").parse::<usize>().expect("Error in feature  arg");
             },
@@ -331,6 +335,7 @@ impl<V: SampleValue> ParameterBook<V> {
             tree_limit: 1,
             leaf_size_cutoff: usize::MAX,
             depth_cutoff: 1,
+            max_splits: 1,
             dropout: DropMode::No,
 
             feature_subsample: 1,
@@ -398,6 +403,8 @@ impl<V: SampleValue> ParameterBook<V> {
 
         let processors = num_cpus::get();
 
+        let max_splits = 100;
+
         // let dropout: DropMode;
         //
         // if input_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) || output_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) {
@@ -439,6 +446,7 @@ impl<V: SampleValue> ParameterBook<V> {
         self.tree_limit = trees;
         self.leaf_size_cutoff = leaf_size_cutoff;
         self.depth_cutoff = depth_cutoff;
+        self.max_splits = max_splits;
         self.dropout = dropout;
 
         self.prediction_mode = prediction_mode;

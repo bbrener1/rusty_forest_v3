@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
 use crate::rank_vector::{FeatureVector,SegmentedVector};
 use crate::{SampleKey,SampleValue,DrawOrder};
-use crate::rank_vector::MedianArray;
+use crate::rank_vector::{MedianArray,MedianVector};
 use crate::valsort;
 use crate::ArgMinMax;
 use num_traits::NumCast;
@@ -34,11 +34,9 @@ pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>
         })
         .collect();
 
-    // println!("Splitting");
-
     let minima: Vec<Option<(usize,usize,f64)>> = draw_orders
-        // .into_iter()
-        .into_par_iter()
+        .into_iter()
+        // .into_par_iter()
         .enumerate()
         .map(|(i,draw_order)| {
             let mut dispersions: Vec<f64> = vec![0.;draw_order.len()];
@@ -62,8 +60,8 @@ pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>
         .collect();
     let (feature,sample,dispersion) = minima.iter().flat_map(|m| m).min_by(|&a,&b| (a.2).partial_cmp(&b.2).unwrap())?;
 
-    // println!("Split successful");
-    // println!("{},{}",feature,sample);
+    println!("Split successful");
+    println!("{},{}",feature,sample);
 
     Some((*feature,*sample,*dispersion))
 }
