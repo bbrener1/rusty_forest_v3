@@ -3431,6 +3431,7 @@ class NodeCluster:
         tiled_indices = np.tile(np.arange(delta.shape[0]),((delta.shape[0]),1))
 
         ranked = zip(tiled_indices.flatten()[ranks],tiled_indices.T.flatten()[ranks])
+
         return ranked[-n:]
 
 ##############################################################################
@@ -4067,59 +4068,14 @@ def generate_feature_value_html(features, values, normalization=None, cmap=None)
     html_elements.append("</table>")
     return "".join(html_elements)
 
+def generate_local_correlation_table(f1,f2,local,global):
+    pass
+
 
 def js_wrap(name, content):
     return f"<script> let {name} = {content};</script>"
 
 
-def text_rectangle(ax, text, rect, no_warp=True, color=None, edgecolor='b', linewidth=3, **kwargs):
-
-    if color is None:
-        try:
-            color = mpl.rcParams['text.color']
-        except:
-            color = 'b'
-
-    from matplotlib.text import TextPath
-    import matplotlib.patches as mpatches
-    import matplotlib.transforms as trns
-
-    [x, y, w, h, ] = rect
-
-    text_path = TextPath((0, 0), s=text)
-    patch = mpatches.PathPatch(text_path, **kwargs)
-
-    _, _, t_w, t_h = patch.get_extents().bounds
-
-    sx = w / t_w
-    sy = h / t_h
-
-    if no_warp:
-
-        [_, _, a_w, a_h] = ax.get_position().bounds
-        ax_aspect = a_w / a_h
-        patch_aspect = t_w / t_h
-        rect_aspect = w / h
-
-        # print("Aspect debug:")
-        # print(f"patch aspect:{patch_aspect}")
-        # print(f"rect_aspect:{rect_aspect}")
-        # print(f"ax_aspect:{ax_aspect}")
-        # print(f"ax_dimension:{ax.get_position()}")
-
-        if ax_aspect > patch_aspect:
-            sx = sx * (patch_aspect / (rect_aspect * ax_aspect))
-        else:
-            sy = sy * ((rect_aspect * ax_aspect) / patch_aspect)
-
-    text_path = trns.Affine2D().scale(sx=sx, sy=sy).translate(
-        x, y).transform_path(text_path)
-
-    ax_transform = ax.transAxes
-    patch = mpatches.PathPatch(text_path, transform=ax_transform,
-                               color=color, edgecolor=edgecolor, linewidth=linewidth, **kwargs)
-
-    ax.add_artist(patch)
 
 
 def fast_knn(elements, k, neighborhood_fraction=.01, metric='cosine'):
