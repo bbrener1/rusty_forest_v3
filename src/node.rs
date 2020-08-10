@@ -217,7 +217,9 @@ pub trait ComputeNode<'a>: Node<'a>
             Some(self)
 
         }
-        else { println!("Failed to derive"); None }
+        else {
+            // println!("Failed to derive");
+            None }
     }
 
 
@@ -273,7 +275,7 @@ pub struct FastNode<'a,V:SampleValue> {
     samples: Vec<SampleUF<V>>,
     filter: SampleFilter<InputFeatureUF<V>>,
     children: Vec<FastNode<'a,V>>,
-    depth: usize,
+    pub depth: usize,
 }
 
 impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {

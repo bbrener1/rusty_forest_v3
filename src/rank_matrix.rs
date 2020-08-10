@@ -9,8 +9,6 @@ use rayon::prelude::*;
 
 pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>,sfr:f64,l:i32) -> Option<(usize,usize,f64)> {
 
-    // println!("Splitting {:?},{:?}", input.dim(),output.dim());
-
     // println!("Sorting outputs");
 
     let mut output_vectors: Vec<MedianArray<V2>> =
@@ -35,8 +33,8 @@ pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>
         .collect();
 
     let minima: Vec<Option<(usize,usize,f64)>> = draw_orders
-        .into_iter()
-        // .into_par_iter()
+        // .into_iter()
+        .into_par_iter()
         .enumerate()
         .map(|(i,draw_order)| {
             let mut dispersions: Vec<f64> = vec![0.;draw_order.len()];
@@ -58,12 +56,25 @@ pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>
             dispersions.into_iter().argmin_v().map(|(local_index,dispersion)| (i,draw_order[local_index],dispersion))
         })
         .collect();
+
     let (feature,sample,dispersion) = minima.iter().flat_map(|m| m).min_by(|&a,&b| (a.2).partial_cmp(&b.2).unwrap())?;
+    // Some((*feature,*sample,*dispersion))
+
+    // let feature_index = minima.iter().map(|m| m.map(|(f,s,d)| d).unwrap_or(std::f64::MAX)).argmin()?;
+    // let (feature,sample,dispersion) = minima[feature_index]?;
+    let mut initial_dispersion: f64 = 0.;
+
+    for rv in output_vectors.iter() {
+        let dispersion: f64 = NumCast::from(rv.dispersion()).unwrap();
+        initial_dispersion += dispersion;
+    }
 
     // println!("Split successful");
-    // println!("{},{}",feature,sample);
+    // println!("{}",output_vectors.len());
+    let delta_dispersion = initial_dispersion - dispersion;
+    Some((*feature,*sample,delta_dispersion))
 
-    Some((*feature,*sample,*dispersion))
+
 }
 
 

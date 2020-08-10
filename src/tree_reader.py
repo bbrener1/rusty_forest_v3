@@ -2914,13 +2914,11 @@ class Forest:
             matrix[:, i] = cluster.sister_scores()
         return matrix
 
-    def local_correlations(self):
+    def global_correlations(self):
 
-        additive_gains = self.mean_additive_matrix(self.nodes())
-        local_correlations = np.corrcoef(additive_gains)
+        global_correlations = np.corrcoef(self.output)
 
-        return local_correlations
-
+        return global_correlations
 
 class Prediction:
 
@@ -3412,6 +3410,29 @@ class NodeCluster:
     def mean_population(self):
         return np.mean([len(n.samples) for n in self.nodes])
 
+    def local_correlations(self):
+        weights = np.abs(self.sister_scores())
+
+        weighted_covariance = np.cov(self.forest.output,aweights=weights)
+        diagonal = weighted_covariance.diag()
+        normalization = np.sqrt(np.outer(diagonal,diagonal))
+        correlations = weighted_covariance/normalization
+        return correlations
+
+    def most_local_correlations(self,n=10):
+
+        global_correlations = self.forest.global_correlations()
+        local_correlations = self.local_correlations()
+
+        delta = local_correlations - global_correlations
+
+        ranks = np.argsort(np.abs(delta.flatten()));
+
+        tiled_indices = np.tile(np.arange(delta.shape[0]),((delta.shape[0]),1))
+
+        ranked = zip(tiled_indices.flatten()[ranks],tiled_indices.T.flatten()[ranks])
+        return ranked[-n:]
+
 ##############################################################################
 # Sample membership methods
 ##############################################################################
@@ -3526,6 +3547,8 @@ class NodeCluster:
         changed_vs_parent, fold_vs_parent = self.changed_absolute()
         changed_vs_all, fold_vs_all = self.changed_absolute_root()
         changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
+
+        local =
 
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
@@ -4025,14 +4048,14 @@ def generate_feature_value_html(features, values, normalization=None, cmap=None)
         "<th>", "Values", "</th>",
         "</tr>",
     ]
-    for feature, value in zip(features, values):
+    for i,feature, value in enumerate(zip(features, values)):
         value_color_tag = ""
-        # if normalization is not None:
-        #     normed_value = normalization(value)
-        #     r,g,b,a = cmap(normed_value)
-        #     r,g,b,a = r*100,g*100,b*100,a*100
-        # value_color_tag = f'style="background-color:rgba({r}%,{g}%,{b}%,50%);"'
-        # value_color_tag = f'style="background-image:linear-gradient(to right,rgba({r}%,{g}%,{b}%,0%),rgba({r}%,{g}%,{b}%,50%));"'
+        if normalization is not None:
+            normed_value = normalization(value)
+            r,g,b,a = cmap(normed_value)
+            r,g,b,a = r*100,g*100,b*100,a*100
+        value_color_tag = f'style="background-color:rgba({r}%,{g}%,{b}%,50%);"'
+        value_color_tag = f'style="background-image:linear-gradient(to right,rgba({r}%,{g}%,{b}%,0%),rgba({r}%,{g}%,{b}%,50%));"'
         feature_elements = f"""
             <tr>
                 <td>{feature}</td>
