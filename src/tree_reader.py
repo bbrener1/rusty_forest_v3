@@ -2916,7 +2916,7 @@ class Forest:
 
     def global_correlations(self):
 
-        global_correlations = np.corrcoef(self.output)
+        global_correlations = np.corrcoef(self.output.T)
 
         return global_correlations
 
@@ -3411,10 +3411,11 @@ class NodeCluster:
         return np.mean([len(n.samples) for n in self.nodes])
 
     def local_correlations(self):
-        weights = np.abs(self.sister_scores())
 
-        weighted_covariance = np.cov(self.forest.output,aweights=weights)
-        diagonal = weighted_covariance.diag()
+        weights = self.sample_counts()
+
+        weighted_covariance = np.cov(self.forest.output.T,fweights=weights)
+        diagonal = np.diag(weighted_covariance)
         normalization = np.sqrt(np.outer(diagonal,diagonal))
         correlations = weighted_covariance/normalization
         return correlations
@@ -3549,8 +3550,6 @@ class NodeCluster:
         changed_vs_all, fold_vs_all = self.changed_absolute_root()
         changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
 
-        local =
-
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
         attributes['parentUpregulatedHtml'] = generate_feature_value_html(
@@ -3582,6 +3581,126 @@ class NodeCluster:
 
         return jsn_dumps(attributes)
 
+    def top_gene_cross_reference(self,n):
+        import matplotlib.patheffects as PathEffects
+
+        changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
+
+        important_features = list(changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
+        important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
+        important_indices = [self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
+
+        local_correlations = self.local_correlations()
+        global_correlations = self.forest.global_correlations()
+
+        selected_local = local_correlations[important_indices].T[important_indices].T
+        selected_global = local_correlations[important_indices].T[important_indices].T
+
+        fig = plt.figure()
+        ax = fig.add_axes([.3,0,.7,1])
+        plt.title("Local Correlations")
+        im = ax.imshow(selected_local,vmin=-1,vmax=1,cmap='bwr')
+        for i in range(n*2):
+            for j in range(n*2):
+                text = ax.text(j-.1, i-.1, np.around(selected_local[i, j],3),
+                       ha="center", va="center",c='w')
+                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
+                text = ax.text(j+.25, i+.25, f"({np.around(selected_global[i, j],3)} g)",
+                       ha="center", va="center",c='w',fontsize=5)
+                text.set_path_effects([PathEffects.withStroke(linewidth=1, foreground='black')])
+
+        plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
+        plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
+        ax.yaxis.set_label_position("right")
+        plt.colorbar(im)
+        plt.show()
+
+    def top_local(self,n,no_plot=False):
+
+        import matplotlib.patheffects as PathEffects
+
+        changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
+
+        important_features = list(changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
+        important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
+        important_indices = [self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
+
+        local_correlations = self.local_correlations()
+
+        selected_local = local_correlations[important_indices].T[important_indices].T
+
+        fig = plt.figure()
+        ax = fig.add_axes([0,0,1,1])
+        plt.title("Local Correlations")
+        im = ax.imshow(selected_local,vmin=-1,vmax=1,cmap='bwr')
+        for i in range(n*2):
+            for j in range(n*2):
+                text = ax.text(j, i, np.around(selected_local[i, j],3),
+                       ha="center", va="center",c='w')
+                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
+
+        plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
+        plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
+        plt.colorbar(im)
+        if no_plot:
+            return fig
+        else:
+            plt.show()
+            return fig
+
+
+    def top_global(self,n,no_plot=False):
+
+        import matplotlib.patheffects as PathEffects
+
+        changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
+
+        important_features = list(changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
+        important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
+        important_indices = [self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
+
+        global_correlations = self.forest.global_correlations()
+
+        selected_global = global_correlations[important_indices].T[important_indices].T
+
+        fig = plt.figure()
+        ax = fig.add_axes([0,0,1,1])
+        plt.title("Global Correlations")
+        im = ax.imshow(selected_global,vmin=-1,vmax=1,cmap='bwr')
+        for i in range(n*2):
+            for j in range(n*2):
+                text = ax.text(j, i, np.around(selected_global[i, j],3),
+                       ha="center", va="center",c='w')
+                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
+
+        plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
+        plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
+        plt.colorbar(im)
+        if no_plot:
+            return fig
+        else:
+            plt.show()
+            return fig
+
+
+    def html_cross_reference(self,n=10,plot=False,output=None):
+
+        if output is None:
+            location = self.html_directory()
+        else:
+            location = output
+
+        local_cross = self.top_local(no_plot=True)
+        global_cross = self.top_global(no_plot=True)
+
+        local_cross.savefig(location+"local_cross.png")
+        global_cross.savefig(location+"global_cross.png")
+
+        local_html = f'<img class="local_cross" src="{location + "local_cross.png"}" />'
+        global_html = f'<img class="global_cross" src="{location + "global_cross.png"}" />'
+
+        return (local_html,global_html)
+
     def html_cluster_summary(self, n=20, plot=True, output=None):
 
         location = self.forest.location()
@@ -3600,6 +3719,7 @@ class NodeCluster:
 
         self.html_sister_scores(output=output)
         self.html_sample_scores(output=output)
+        self.html_cross_reference(output=output)
 
         with open(html_location + "cluster_summary_template_js.html", 'w') as html_file:
             json_string = js_wrap("attributes", self.json_cluster_summary(n=n))
@@ -4035,9 +4155,9 @@ def generate_feature_value_html(features, values, normalization=None, cmap=None)
             cmap = get_cmap(cmap)
         except:
             cmap = get_cmap('viridis')
-    if normalization is None:
-        from matplotlib.colors import SymLogNorm, DivergingNorm
-        normalization = DivergingNorm(0)
+    # if normalization is None:
+    #     from matplotlib.colors import SymLogNorm, DivergingNorm
+    #     normalization = DivergingNorm(0)
         # normalization = SymLogNorm(linthresh=.05)
 
     html_elements = [
@@ -4049,14 +4169,14 @@ def generate_feature_value_html(features, values, normalization=None, cmap=None)
         "<th>", "Values", "</th>",
         "</tr>",
     ]
-    for i,feature, value in enumerate(zip(features, values)):
+    for feature, value in zip(features, values):
         value_color_tag = ""
-        if normalization is not None:
-            normed_value = normalization(value)
-            r,g,b,a = cmap(normed_value)
-            r,g,b,a = r*100,g*100,b*100,a*100
-        value_color_tag = f'style="background-color:rgba({r}%,{g}%,{b}%,50%);"'
-        value_color_tag = f'style="background-image:linear-gradient(to right,rgba({r}%,{g}%,{b}%,0%),rgba({r}%,{g}%,{b}%,50%));"'
+        # if normalization is not None:
+        #     normed_value = normalization(value)
+        #     r,g,b,a = cmap(normed_value)
+        #     r,g,b,a = r*100,g*100,b*100,a*100
+        # value_color_tag = f'style="background-color:rgba({r}%,{g}%,{b}%,50%);"'
+        # value_color_tag = f'style="background-image:linear-gradient(to right,rgba({r}%,{g}%,{b}%,0%),rgba({r}%,{g}%,{b}%,50%));"'
         feature_elements = f"""
             <tr>
                 <td>{feature}</td>
@@ -4068,14 +4188,21 @@ def generate_feature_value_html(features, values, normalization=None, cmap=None)
     html_elements.append("</table>")
     return "".join(html_elements)
 
-def generate_local_correlation_table(f1,f2,local,global):
-    pass
+# def generate_local_correlation_table(f1,f2,local,global):
+#
+#     html_elements = [
+#         # '<table width="100%">',
+#         '<table>',
+#         "<style>", "th,td {padding:5px;border-bottom:1px solid #ddd;}", "</style>",
+#         "<tr>",
+#         "<th>", "Features", "</th>",
+#         "<th>", "Values", "</th>",
+#         "</tr>",
+#     ]
 
 
 def js_wrap(name, content):
     return f"<script> let {name} = {content};</script>"
-
-
 
 
 def fast_knn(elements, k, neighborhood_fraction=.01, metric='cosine'):

@@ -61,7 +61,7 @@ fn main() {
     println!("Starting loop");
 
     (0..tree_limit)
-        .into_iter()
+        // .into_iter()
         .into_par_iter()
         .flat_map(|i| {
             let mut root = FastNode::from_forest(&forest);
@@ -94,10 +94,12 @@ fn main() {
                 if let Some(stem) = node.split(left,right) {
                     // println!("depth:{:?}",stem.depth);
                     let (left_slice,right_slice) = stem.mut_children().split_at_mut(1);
-                    let left_split = left_slice[0].best_reduced_split(false,true);
-                    let right_split = right_slice[0].best_reduced_split(false,true);
-                    leaf_splits.extend(left_split);
-                    leaf_splits.extend(right_split);
+                    if left_slice[0].depth < forest.parameters().depth_cutoff {
+                        let left_split = left_slice[0].best_reduced_split(false,true);
+                        let right_split = right_slice[0].best_reduced_split(false,true);
+                        leaf_splits.extend(left_split);
+                        leaf_splits.extend(right_split);
+                    }
                 };
             };
 
