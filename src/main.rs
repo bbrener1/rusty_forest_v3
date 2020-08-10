@@ -77,15 +77,11 @@ fn main() {
             println!("Initial candidates computed");
 
             for j in 0..forest.parameters().max_splits {
-                println!("candidates:{:?}",leaf_splits.len());
                 if let Some((best_index,_)) = leaf_splits.iter().map(|(_,_,d)| d).argmin_v() {
-                    println!("Found best split {:?}",best_index);
                     let (node,(left,right),_) = leaf_splits.remove(best_index);
                     if let Some(stem) = node.split(left,right) {
                         let (left_slice,right_slice) = stem.mut_children().split_at_mut(1);
-                        println!("First best");
                         let left_split = left_slice[0].best_reduced_split(false,true);
-                        println!("Second best");
                         let right_split = right_slice[0].best_reduced_split(false,true);
                         leaf_splits.extend(left_split);
                         leaf_splits.extend(right_split);

@@ -60,8 +60,8 @@ pub fn split<V1:SampleValue,V2:SampleValue>(input:&Array2<V1>,output:&Array2<V2>
         .collect();
     let (feature,sample,dispersion) = minima.iter().flat_map(|m| m).min_by(|&a,&b| (a.2).partial_cmp(&b.2).unwrap())?;
 
-    println!("Split successful");
-    println!("{},{}",feature,sample);
+    // println!("Split successful");
+    // println!("{},{}",feature,sample);
 
     Some((*feature,*sample,*dispersion))
 }

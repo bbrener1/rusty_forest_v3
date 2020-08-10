@@ -117,7 +117,7 @@ pub trait ComputeNode<'a>: Node<'a>
     fn best_reduced_split(&mut self,reduce_input:bool,reduce_output:bool) -> Option<(&mut Self, (SampleFilter<Self::InputFeature>,SampleFilter<Self::InputFeature>),f64)> {
         use num_traits::{NumCast};
 
-        println!("Reducing");
+        // println!("Reducing");
 
         let mut input_reduction: Option<Reduction<Self::InputFeature>> = None;
 
@@ -169,7 +169,7 @@ pub trait ComputeNode<'a>: Node<'a>
                 output_intermediate.mapv(|v| NumCast::from(v).expect("Cast failure"))
             };
 
-        println!("Features reduced");
+        // println!("Features reduced");
 
         let (best_feature_index,best_sample_index,best_dispersion) =
             mtx_split(
@@ -200,14 +200,14 @@ pub trait ComputeNode<'a>: Node<'a>
                 SampleFilter::from_feature_sample(&best_feature, &best_sample)
             };
 
-        println!("Filters done, returning");
+        // println!("Filters done, returning");
 
         Some((self,(left_filter,right_filter),best_dispersion))
     }
 
     fn split(&mut self,left_filter:SampleFilter<Self::InputFeature>,right_filter:SampleFilter<Self::InputFeature>) -> Option<&mut Self> {
 
-        println!("Deriving");
+        // println!("Deriving");
 
         if let (Some(left_child),Some(right_child)) = (self.derive(left_filter),self.derive(right_filter)) {
 
@@ -273,6 +273,7 @@ pub struct FastNode<'a,V:SampleValue> {
     samples: Vec<SampleUF<V>>,
     filter: SampleFilter<InputFeatureUF<V>>,
     children: Vec<FastNode<'a,V>>,
+    depth: usize,
 }
 
 impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {
@@ -290,6 +291,7 @@ impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {
             parameters: forest.parameters(),
             filter: SampleFilter::<InputFeatureUF<V>>::blank(),
             children: vec![],
+            depth: 0,
         }
     }
 
@@ -328,7 +330,7 @@ impl<'a,V:SampleValue> Node<'a> for FastNode<'a,V> {
 
 impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
     fn derive(&self,filter:SampleFilter<InputFeatureUF<V>>) -> Option<FastNode<'a,V>> {
-        println!("Filtering {:?}",self.samples.len());
+        if self.depth >= self.forest.parameters().depth_cutoff { return None };
         let new_samples = filter.filter_samples(&self.samples);
         if new_samples.len() > 2 {
             Some(FastNode {
@@ -337,13 +339,14 @@ impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
                 parameters: self.parameters,
                 filter: filter,
                 children: vec![],
+                depth: self.depth + 1,
             })
         }
         else { None }
     }
 
     fn derive_scaled(&self,filter:SampleFilter<InputFeatureUF<V>>) -> Option<FastNode<'a,V>> {
-        println!("Filtering {:?}",self.samples.len());
+        if self.depth >= self.forest.parameters().depth_cutoff { return None };
         let new_samples = filter.filter_samples_scaled(&self.samples);
         if new_samples.len() > 2 {
             Some(FastNode {
@@ -352,6 +355,7 @@ impl<'a,V:SampleValue> ComputeNode<'a> for FastNode<'a,V> {
                 parameters: self.parameters,
                 filter: filter,
                 children: vec![],
+                depth: self.depth + 1,
             })
         }
         else { None }
