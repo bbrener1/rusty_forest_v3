@@ -2434,25 +2434,6 @@ class Forest:
 
         return transitions
 
-    def partial_dependence(self):
-        total_nodes = self.nodes()
-        path_matrix = np.zeros((len(self.split_clusters), len(total_nodes)))
-        for node in total_nodes:
-            path_matrix[node.split_cluster, node.index] = True
-            if hasattr(node, 'split_cluster'):
-                for descendant in node.nodes():
-                    path_matrix[node.split_cluster, descendant.index] = True
-        path_covariance = np.cov(path_matrix)
-        precision = np.linalg.pinv(path_covariance)
-    #     return precision
-
-        precision_normalization = np.sqrt(
-            np.outer(np.diag(precision), np.diag(precision)))
-        path_partials = precision / precision_normalization
-
-        path_partials[np.isnan(path_partials)] = 0
-
-        return path_partials
 
     def directional_matrix(self):
 
@@ -2476,6 +2457,46 @@ class Forest:
                     upstream_frequency[cluster.id, ancestor.split_cluster] += 1
 
         return upstream_frequency, downstream_frequency
+
+
+    def conditional_split_probability(self):
+
+        _, down_matrix = self.directional_matrix()
+        total_descendents = np.sum(down_matrix, axis=1)
+        conditional_probability = (down_matrix.T / (total_descendents + 1)).T
+
+        return conditional_probability
+
+    def probability_enrichment(self):
+
+        _, down_matrix = self.directional_matrix()
+        total_descendents = np.sum(down_matrix, axis=1)
+        conditional_probability = (down_matrix.T / (total_descendents + 1)).T
+
+        raw_probability = conditional_probability[0]
+        enrichment = conditional_probability / raw_probability
+
+        return enrichment
+
+    def partial_dependence(self):
+        total_nodes = self.nodes()
+        path_matrix = np.zeros((len(self.split_clusters), len(total_nodes)))
+        for node in total_nodes:
+            path_matrix[node.split_cluster, node.index] = True
+            if hasattr(node, 'split_cluster'):
+                for descendant in node.nodes():
+                    path_matrix[node.split_cluster, descendant.index] = True
+        path_covariance = np.cov(path_matrix)
+        precision = np.linalg.pinv(path_covariance)
+    #     return precision
+
+        precision_normalization = np.sqrt(
+            np.outer(np.diag(precision), np.diag(precision)))
+        path_partials = precision / precision_normalization
+
+        path_partials[np.isnan(path_partials)] = 0
+
+        return path_partials
 
     def split_cluster_odds_ratios(self):
 
@@ -2508,17 +2529,6 @@ class Forest:
 
         return odds_ratio
 
-    def conditional_split_probability(self):
-
-        _, down_matrix = self.directional_matrix()
-
-        print(down_matrix)
-
-        total_descendents = np.sum(down_matrix, axis=1)
-
-        conditional_probability = (down_matrix.T / (total_descendents + 1)).T
-
-        return conditional_probability
 
     ###############
     # Here we have several alternative methods for constructing the consensus tree.
@@ -3550,6 +3560,9 @@ class NodeCluster:
         changed_vs_all, fold_vs_all = self.changed_absolute_root()
         changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
 
+        probability_enrichment = np.around(self.probability_enrichment(),3)
+        probability_enrichment = [(self.forest.split_clusters[i].name(),enrichment) for (i,enrichment) in enumerate(probability_enrichment)]
+
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
         attributes['parentUpregulatedHtml'] = generate_feature_value_html(
@@ -3564,6 +3577,7 @@ class NodeCluster:
             reversed(changed_vs_all[-n:]), reversed(fold_vs_all[-n:]), cmap='bwr')
         attributes['absoluteDownregulatedHtml'] = generate_feature_value_html(
             reversed(changed_vs_all[:n]), reversed(fold_vs_all[:n]), cmap='bwr')
+        attributes['probability_enrichment'] = probability_enrichment
         attributes['children'] = ", ".join(
             [c.name() for c in self.child_clusters()])
         attributes['parent'] = self.parent_cluster().name()
@@ -3642,6 +3656,7 @@ class NodeCluster:
         plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
         plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
         plt.colorbar(im)
+        plt.tight_layout()
         if no_plot:
             return fig
         else:
@@ -3676,6 +3691,7 @@ class NodeCluster:
         plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
         plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
         plt.colorbar(im)
+        plt.tight_layout()
         if no_plot:
             return fig
         else:
@@ -3690,11 +3706,13 @@ class NodeCluster:
         else:
             location = output
 
-        local_cross = self.top_local(no_plot=True)
-        global_cross = self.top_global(no_plot=True)
+        local_cross = self.top_local(n,no_plot=True)
+        global_cross = self.top_global(n,no_plot=True)
 
-        local_cross.savefig(location+"local_cross.png")
-        global_cross.savefig(location+"global_cross.png")
+        print(f"Saving cross ref to {location}")
+
+        local_cross.savefig(location+"local_cross.png",bbox_inches='tight')
+        global_cross.savefig(location+"global_cross.png",bbox_inches='tight')
 
         local_html = f'<img class="local_cross" src="{location + "local_cross.png"}" />'
         global_html = f'<img class="global_cross" src="{location + "global_cross.png"}" />'
@@ -3719,7 +3737,7 @@ class NodeCluster:
 
         self.html_sister_scores(output=output)
         self.html_sample_scores(output=output)
-        self.html_cross_reference(output=output)
+        self.html_cross_reference(n=n,output=output)
 
         with open(html_location + "cluster_summary_template_js.html", 'w') as html_file:
             json_string = js_wrap("attributes", self.json_cluster_summary(n=n))
@@ -3857,6 +3875,9 @@ class NodeCluster:
 
         return clusters
 
+    def probability_enrichment(self):
+        enrichment = self.forest.probability_enrichment()
+        return enrichment[self.id]
 
 ################################
 ################################

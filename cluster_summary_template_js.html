@@ -1,6 +1,10 @@
 <!-- Template for cluster summary -->
 <head>
   <style>
+      pre {
+          font-family: Arial;
+          margin: 25px;
+      }
     * {
       box-sizing:border-box;
     }
@@ -111,9 +115,15 @@
     $("#absoluteDownregulatedFeatures").append(attributes.absoluteDownregulatedHtml);
     $("#sisterUpregulatedFeatures").append(attributes.sisterUpregulatedHtml);
     $("#sisterDownregulatedFeatures").append(attributes.sisterDownregulatedHtml);
-    $("#childListing").append(attributes.children)
-    $("#siblingListing").append(attributes.siblings)
-    $("#parent").append(attributes.parent)
+    // $("#childListing").append(attributes.children)
+    // $("#siblingListing").append(attributes.siblings)
+    // $("#parent").append(attributes.parent)
+    let positive_enrichment = [...attributes.probability_enrichment.entries()].filter(([i,[name,e]]) => e >= 1.)
+    positive_enrichment.sort((a,b) => a[1][1] - b[1][1])
+    for (i in positive_enrichment) {
+      let [index,[name,enrichment]] = positive_enrichment[i]
+      $("#enrichment").append(`<div><pre><a href="../${index}/cluster_summary_template_js.html">${name}</a>:\t${enrichment}</pre></div>`);
+    };
     console.log(attributes);
 
   })
@@ -146,7 +156,7 @@
   }
   function localCross(){
     document.getElementById("local_cross").style.display = "block";
-    document.getElementById("global_cross").style.display = "none";    
+    document.getElementById("global_cross").style.display = "none";
   }
   </script>
 </head>
@@ -206,14 +216,16 @@
   </div>
 
   <div class="relatives panel">
-    <h2> Relatives </h2>
+    <h2> Cluster Probability Ratio </h2>
     <div>
-      <h3> Parent </h3>
+      <div id="enrichment">
+      </div>
+      <!-- <h3> Parent </h3>
       <div id="parent" class="relative"></div>
       <h3>Children</h3>
       <div id="childListing" class="relative"></div>
       <h3> Siblings </h3>
-      <div id="siblingListing" class="relative"></div>
+      <div id="siblingListing" class="relative"></div> -->
       <a href="../tree_template.html"><h3> Return To Tree View </h3></a>
     </div>
   </div>
@@ -221,7 +233,7 @@
   <div id="cross_ref" class="panel cross_ref">
     <h2 style="text-align:center;" class="cross_ref_header"> Feature Correlations </h2>
     <img id="local_cross" class="cross_ref_image" src="local_cross.png" />
-    <img id="global_cross" class="cross_ref_image" src="global_cross.png" />
+    <img id="global_cross" class="cross_ref_image" src="global_cross.png" style="display:none" />
   </div>
 
   <!-- <div id="cross_ref" class="panel cross_ref">
@@ -229,7 +241,7 @@
   </div> -->
 
   <div id="switch_cross_panel" class="panel">
-    <h2> Switch Score Display </h2>
+    <h2> Switch Local/Global </h2>
     <button class="summary_button" onclick="localCross()"> Local Correlations </button>
     <button class="summary_button" onclick="globalCross()"> Global Correlations </button>
   </div>
