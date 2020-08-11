@@ -67,6 +67,10 @@
       float:right;
       width:23%;
     }
+    #switch_cross_panel {
+      float:right;
+      width:23%;
+    }
     .summary_button {
       font-size:1.3vw;
       width:100%;
@@ -82,6 +86,14 @@
     .navigation {
       float:left;
       width:23%;
+    }
+    .cross_ref {
+      display:block;
+      float:left;
+      width:73%;
+    }
+    .cross_ref_image {
+      width:100%;
     }
 
   </style>
@@ -127,6 +139,14 @@
     document.getElementById("changed_vs_parent").style.display = "none";
     document.getElementById("changed_vs_sister").style.display = "grid";
     document.getElementById("changed_vs_all").style.display = "none";
+  }
+  function globalCross(){
+    document.getElementById("local_cross").style.display = "none";
+    document.getElementById("global_cross").style.display = "block";
+  }
+  function localCross(){
+    document.getElementById("local_cross").style.display = "block";
+    document.getElementById("global_cross").style.display = "none";    
   }
   </script>
 </head>
@@ -197,5 +217,23 @@
       <a href="../tree_template.html"><h3> Return To Tree View </h3></a>
     </div>
   </div>
+
+  <div id="cross_ref" class="panel cross_ref">
+    <h2 style="text-align:center;" class="cross_ref_header"> Feature Correlations </h2>
+    <img id="local_cross" class="cross_ref_image" src="local_cross.png" />
+    <img id="global_cross" class="cross_ref_image" src="global_cross.png" />
+  </div>
+
+  <!-- <div id="cross_ref" class="panel cross_ref">
+    <h2 style="text-align:center;" class="cross_ref_header"> Feature Correlations </h2>
+  </div> -->
+
+  <div id="switch_cross_panel" class="panel">
+    <h2> Switch Score Display </h2>
+    <button class="summary_button" onclick="localCross()"> Local Correlations </button>
+    <button class="summary_button" onclick="globalCross()"> Global Correlations </button>
+  </div>
+
+
 
 </body>
