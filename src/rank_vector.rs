@@ -1216,11 +1216,11 @@ mod random_forest_tests {
 
     #[test]
     fn random_median_test() {
+        use crate::valsort;
 
         let floats = random_floats();
         let draw_order = random_draw_order();
-        let mut argsorted: Vec<(usize,f64)> = floats.into_iter().enumerate().collect();
-        argsorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let argsorted = valsort(floats.into_iter());
         let mut mv = MedianArray::link(&argsorted);
         for i in draw_order {
             mv.pop(i);

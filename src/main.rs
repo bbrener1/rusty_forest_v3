@@ -36,6 +36,7 @@ use std::ops::{SubAssign,AddAssign};
 use std::iter::Sum;
 use std::sync::Arc;
 use std::convert::Into;
+use std::collections::BTreeMap;
 
 use ndarray::prelude::*;
 use ndarray::{LinalgScalar};
@@ -62,22 +63,51 @@ fn main() {
     (0..tree_limit)
         // .into_iter()
         .into_par_iter()
-        .map(|i| {
+        .flat_map(|i| {
             let mut root = FastNode::from_forest(&forest);
             println!("Computing tree {:?}",i);
+            // println!("#######################");
 
-            // if let Some(mut sidxn) = root.double_reduce(0).map(|fast_n| fast_n.to_sidxn()) {
-            //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
-            // }
-            if let Some(mut sidxn) = root.reduced_split(0).map(|fast_n| fast_n.to_sidxn()) {
-                sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
+            let mut leaf_splits: Vec<(&mut FastNode<f64>,(SampleFilter<InputFeatureUF<f64>>,SampleFilter<InputFeatureUF<f64>>),f64)> = vec![];
+            if let Some(root_split) = root.best_reduced_split(false,true) {
+                leaf_splits.push(root_split)
             }
-            // if let Some(mut sidxn) = root.split(0).map(|fast_n| fast_n.to_sidxn()) {
-            //     sidxn.dump(format!("{}.{}.compact",report_address,i).as_str());
+            else { return None }
+
+            // println!("Initial candidates computed");
+
+            // for j in 0..forest.parameters().max_splits {
+            //     if let Some((best_index,_)) = leaf_splits.iter().map(|(_,_,d)| d).argmax_v() {
+            //         let (node,(left,right),_) = leaf_splits.remove(best_index);
+            //         if let Some(stem) = node.split(left,right) {
+            //             let (left_slice,right_slice) = stem.mut_children().split_at_mut(1);
+            //             let left_split = left_slice[0].best_reduced_split(false,true);
+            //             let right_split = right_slice[0].best_reduced_split(false,true);
+            //             leaf_splits.extend(left_split);
+            //             leaf_splits.extend(right_split);
+            //         };
+            //     };
             // }
 
+            while leaf_splits.len() > 0 {
+                let (node,(left,right),_) = leaf_splits.pop().unwrap();
+                if let Some(stem) = node.split(left,right) {
+                    // println!("depth:{:?}",stem.depth);
+                    let (left_slice,right_slice) = stem.mut_children().split_at_mut(1);
+                    if left_slice[0].depth < forest.parameters().depth_cutoff {
+                        let left_split = left_slice[0].best_reduced_split(false,true);
+                        let right_split = right_slice[0].best_reduced_split(false,true);
+                        leaf_splits.extend(left_split);
+                        leaf_splits.extend(right_split);
+                    }
+                };
+            };
+
+            root.to_sidxn().dump(format!("{}.{}.compact",report_address,i).as_str());
+            Some(())
         })
-        .collect::<Vec<()>>();
+        .for_each(drop);
+        // .collect::<Vec<()>>();
 
 
     // println!("CHILDREN:{:?}",children);
