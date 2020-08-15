@@ -8,7 +8,7 @@
       /* background-color:#e6ffe6; */
       text-align:center;
     }
-    body {
+    body,pre {
       font-family:Helvetica,sans-serif;
     }
     .panel {
@@ -77,14 +77,11 @@
       margin:1%;
     }
     .relatives {
+      width:98%;
       float:left;
     }
     .relative {
       padding-left:10%;
-    }
-    .navigation {
-      float:left;
-      width:23%;
     }
     .cross_ref {
       display:block;
@@ -245,8 +242,10 @@
     <div class="tooltip">
       Info
       <div class="tooltiptext">
-        Low-dimensional embedding colored by sample frequency.<br><br>
+        Low-dimensional embedding colored by sample frequency.
+        <br><br>
         Sample score: probability of encountering sample in a cluster node.
+        <br><br>
         Sister score: probability of encountering sample in cluster node -
         probability of encountering sample in sister of a cluster node
       </div>
@@ -271,9 +270,11 @@
     <div class="tooltip">
       Info
       <div class="tooltiptext">
-        Pairwise correlations of top n changed features. <br><br>
+        Pairwise correlations of top n changed features.
+        <br><br>
         Local correlations: correlation weighted by frequency of sample in this cluster
         and its sisters.
+        <br><br>
         Global correlations: unweighted correlations of features. (use for comparison to local)
       </div>
     </div>
@@ -285,18 +286,13 @@
     <div>
       <div id="enrichment">
       </div>
-      <!-- <h3> Parent </h3>
-      <div id="parent" class="relative"></div>
-      <h3>Children</h3>
-      <div id="childListing" class="relative"></div>
-      <h3> Siblings </h3>
-      <div id="siblingListing" class="relative"></div> -->
     </div>
     <div class="tooltip">
       Info
       <div class="tooltiptext">
         Probability ratio of a sample encountering THIS node cluster given that it
         already encountered the OTHER node cluster. <br><br>
+        Larger number means THIS cluster depends more on OTHER cluster. <br><br>
         This value sometimes produces counter-intuitive results, be careful interpreting it.
       </div>
     </div>
