@@ -106,24 +106,24 @@
         position: relative;
         display: block;
         float:right;
-        padding: .5vh;
-        margin: .5vh;
-        border-radius: .5vh;
+        padding: .5vw;
+        margin: .5vw;
+        border-radius: .5vw;
         background-color: springgreen;
         font-size: large;
+        z-index:2;
       }
       .tooltip .tooltiptext {
-        top: -5px;
+        top: 105%;
         right: 105%;
         visibility: hidden;
-        width: 20vh;
-        background-color: black;
+        width: 20vw;
+        background-color: rgb(0,0,0,.9);
         color: #fff;
-        text-align: center;
+        text-align: left;
         padding: 5px;
         border-radius: 5px;
         position: absolute;
-        z-index: 1;
       }
       .tooltip:hover .tooltiptext {
         visibility: visible;
@@ -136,7 +136,7 @@
       function() {
         insertNodes();
         insertConnections();
-        decorateNodesSample();
+        decorateNodesSister();
       });
 
     function insertNodes() {
@@ -228,12 +228,47 @@
   </script>
   <h1 class="panel"> Random Forest Consensus Tree</h1>
   <div class="tooltip" style="float:right;">
+    Lots of Info
+      <div class="tooltiptext" style="width:80vw;">
+      This tool helps you decompose large, high-dimensional data into hierarchal substructures.
+      <br><br>
+      <ul>
+      <li>Each cluster you see here represents a split that happens often when a random
+      forest is trained on your data in an unsupervised manner.
+      <br><br>
+      More technically, each node you see is a collection of individual nodes in the RF
+      that were clustered together, and the properties of each node cluster are average properties of the member nodes.
+      Clustering procedures used to construct these clusters can vary, but by default they are constructed based on changes
+      in the mean of the output labels for samples the node relative to its parent.
+      <br><br>
+      <li>Each cluster can tell you which samples it frequently observes, and which samples
+      its sister nodes frequently observe.
+      <br><br>
+      Because each cluster observes some samples more often than others, each cluster represents a subspace
+      of your data. The samples in each subsapce are more similar to each other than they are to samples elsewhere.
+      Intuitively you can think of the clusters presented here as hierarchicaclly clustering your data.
+      <br><br>
+      <li>Each cluster can tell you what changes in output labels it predicts.
+      <br><br>
+      The behavior of features in a subspace might be different than the behavior of features
+      globally. Depending on your data, each subspace might have totally unique feature covariances. Random Forests are helpful in finding out if this is the case.
+      <br><br>
+      <li>Empirically, we observe that the nodes in each cluster usually have a well-defined relationship to nodes in other clusters, but it is not as easy to build
+      an appealing visual representation of the transitions that frequently occur between nodes. The consensus tree on the left is an approximate best guess, but
+      for your convenience we also provide a probability ratio measure, which tells you how much more likely you are to encounter a sample in one cluster given that you have already seen it in another.
+      Additionally we also provide you with transition counts for each cluster to each other cluster.
+      </ul>
+    </div>
+  </div>
+  <div class="tooltip" style="float:right;">
     Info
       <div class="tooltiptext">
-      Approximate consensus decision tree among all trees in the random forest. <br><br>
-      The root is cluster 0, on the lefthand side. <br><br>
-      Try zooming! ctrl + / ctrl - OR cmd + / cmd -
-
+      Quick tips:
+      <ul>
+      <li>Approximate consensus decision tree among all trees in the random forest. <br><br>
+      <li>The root is cluster 0, on the lefthand side. <br><br>
+      <li>Try zooming! <pre>ctrl + / ctrl - </pre> OR <pre> cmd + / cmd - </pre>
+      </ul>
     </div>
   </div>
   <div id="treeContainer">
