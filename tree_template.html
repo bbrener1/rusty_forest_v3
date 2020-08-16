@@ -236,27 +236,27 @@
       <li>Each cluster you see here represents a split that happens often when a random
       forest is trained on your data in an unsupervised manner.
       <br><br>
-      More technically, each node you see is a collection of individual nodes in the RF
+      <small>More technically, each node you see is a collection of individual nodes in the RF
       that were clustered together, and the properties of each node cluster are average properties of the member nodes.
       Clustering procedures used to construct these clusters can vary, but by default they are constructed based on changes
-      in the mean of the output labels for samples the node relative to its parent.
+      in the mean of the output labels for samples the node relative to its parent.</small>
       <br><br>
       <li>Each cluster can tell you which samples it frequently observes, and which samples
       its sister nodes frequently observe.
       <br><br>
-      Because each cluster observes some samples more often than others, each cluster represents a subspace
+      <small>Because each cluster observes some samples more often than others, each cluster represents a subspace
       of your data. The samples in each subsapce are more similar to each other than they are to samples elsewhere.
-      Intuitively you can think of the clusters presented here as hierarchicaclly clustering your data.
+      Intuitively you can think of the clusters presented here as hierarchicaclly clustering your data.</small>
       <br><br>
       <li>Each cluster can tell you what changes in output labels it predicts.
       <br><br>
-      The behavior of features in a subspace might be different than the behavior of features
-      globally. Depending on your data, each subspace might have totally unique feature covariances. Random Forests are helpful in finding out if this is the case.
+      <small>The behavior of features in a subspace might be different than the behavior of features
+      globally. Depending on your data, each subspace might have totally unique feature covariances. Random Forests are helpful in finding out if this is the case. </small>
       <br><br>
-      <li>Empirically, we observe that the nodes in each cluster usually have a well-defined relationship to nodes in other clusters, but it is not as easy to build
+      <li><small>Empirically, we observe that the nodes in each cluster usually have a well-defined relationship to nodes in other clusters, but it is not as easy to build
       an appealing visual representation of the transitions that frequently occur between nodes. The consensus tree on the left is an approximate best guess, but
       for your convenience we also provide a probability ratio measure, which tells you how much more likely you are to encounter a sample in one cluster given that you have already seen it in another.
-      Additionally we also provide you with transition counts for each cluster to each other cluster.
+      Additionally we also provide you with transition counts for each cluster to each other cluster.</small>
       </ul>
     </div>
   </div>
