@@ -108,6 +108,11 @@ pub trait ComputeNode<'a>: Node<'a>
             sample_subsample[best_sample_index].clone()
         );
 
+
+        if best_sample_index < 2 || best_sample_index > (sample_subsample.len() - 2) {
+            return None
+        }
+
         let (left_filter,right_filter) = SampleFilter::from_feature_sample(&best_feature, &best_sample);
 
 

@@ -1292,11 +1292,11 @@ class Forest:
 
     def predict_node_sample_encoding(self, matrix, leaves=True, depth=None):
         encodings = []
-        print("Predicting")
         for i, root in enumerate(self.roots()):
-            print(f"{i}")
+            print(f"Predicting tree:{i}\r", end='')
             encodings.append(root.predict_matrix_encoding(matrix))
             encodings.append(np.ones(matrix.shape[0]))
+        print('')
         encoding = np.vstack(encodings)
         if leaves:
             encoding = encoding[self.leaf_mask()]
@@ -1484,6 +1484,7 @@ class Forest:
         # print(f"Adjusted:{cluster_predictions}")
 
         cluster = np.argmax(cluster_predictions)
+        cluster = [self.sample_clusters[i].id for i in cluster]
 
         return cluster
 
@@ -3004,6 +3005,22 @@ class Prediction:
                 predicted_encoding)
         return predicted_factors
 
+    def prediction_report(self,truth):
+
+        prediction = self.additive_prediction()
+
+        centered_truth = truth - np.mean(truth,axis=0)
+        true_residual_sum = np.sum(np.power(centered_truth,2))
+
+        forest_residuals = truth - prediction
+
+        predicted_residual_sum = np.sum(np.power(forest_residuals,2))
+
+        explained = predicted_residual_sum / true_residual_sum
+
+        print(explained)
+
+
 
 class TruthDictionary:
 
@@ -3459,8 +3476,7 @@ class NodeCluster:
 
     def sister_scores(self):
         own = self.nodes
-        sisters = [sister for n in own for sister in [
-            n.sister(), ] if sister is not None]
+        sisters = self.sisters()
         own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
         sister_encoding = self.forest.node_sample_encoding(
             sisters).astype(dtype=int)
@@ -3560,7 +3576,8 @@ class NodeCluster:
         changed_vs_all, fold_vs_all = self.changed_absolute_root()
         changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
 
-        probability_enrichment = np.around(self.probability_enrichment(),3)
+        # probability_enrichment = np.around(self.probability_enrichment(),3)
+        probability_enrichment = np.around(self.odds_ratio(),3)
         probability_enrichment = [(self.forest.split_clusters[i].name(),enrichment) for (i,enrichment) in enumerate(probability_enrichment)]
 
         attributes['clusterName'] = str(self.name())
@@ -3610,18 +3627,18 @@ class NodeCluster:
         selected_local = local_correlations[important_indices].T[important_indices].T
         selected_global = local_correlations[important_indices].T[important_indices].T
 
-        fig = plt.figure()
+        fig = plt.figure(figsize=(n,n))
         ax = fig.add_axes([.3,0,.7,1])
         plt.title("Local Correlations")
         im = ax.imshow(selected_local,vmin=-1,vmax=1,cmap='bwr')
         for i in range(n*2):
             for j in range(n*2):
                 text = ax.text(j-.1, i-.1, np.around(selected_local[i, j],3),
-                       ha="center", va="center",c='w')
-                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
+                       ha="center", va="center",c='w',fontsize=6)
+                text.set_path_effects([PathEffects.withStroke(linewidth=.5, foreground='black')])
                 text = ax.text(j+.25, i+.25, f"({np.around(selected_global[i, j],3)} g)",
-                       ha="center", va="center",c='w',fontsize=5)
-                text.set_path_effects([PathEffects.withStroke(linewidth=1, foreground='black')])
+                       ha="center", va="center",c='w',fontsize=4)
+                text.set_path_effects([PathEffects.withStroke(linewidth=.2, foreground='black')])
 
         plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
         plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
@@ -3643,15 +3660,15 @@ class NodeCluster:
 
         selected_local = local_correlations[important_indices].T[important_indices].T
 
-        fig = plt.figure()
+        fig = plt.figure(figsize=(n,n))
         ax = fig.add_axes([0,0,1,1])
         plt.title("Local Correlations")
         im = ax.imshow(selected_local,vmin=-1,vmax=1,cmap='bwr')
         for i in range(n*2):
             for j in range(n*2):
                 text = ax.text(j, i, np.around(selected_local[i, j],3),
-                       ha="center", va="center",c='w')
-                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
+                       ha="center", va="center",c='w',fontsize=7)
+                text.set_path_effects([PathEffects.withStroke(linewidth=.5, foreground='black')])
 
         plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
         plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
@@ -3678,15 +3695,15 @@ class NodeCluster:
 
         selected_global = global_correlations[important_indices].T[important_indices].T
 
-        fig = plt.figure()
+        fig = plt.figure(figsize=(n,n))
         ax = fig.add_axes([0,0,1,1])
         plt.title("Global Correlations")
         im = ax.imshow(selected_global,vmin=-1,vmax=1,cmap='bwr')
         for i in range(n*2):
             for j in range(n*2):
                 text = ax.text(j, i, np.around(selected_global[i, j],3),
-                       ha="center", va="center",c='w')
-                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
+                       ha="center", va="center",c='w',fontsize=7)
+                text.set_path_effects([PathEffects.withStroke(linewidth=.5, foreground='black')])
 
         plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
         plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
@@ -3877,7 +3894,11 @@ class NodeCluster:
 
     def probability_enrichment(self):
         enrichment = self.forest.probability_enrichment()
-        return enrichment[self.id]
+        return enrichment.T[self.id]
+
+    def odds_ratio(self):
+        odds_ratios = self.forest.split_cluster_odds_ratios()
+        return odds_ratios.T[self.id]
 
 ################################
 ################################
