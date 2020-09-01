@@ -2900,6 +2900,7 @@ class Prediction:
     def __init__(self, forest, matrix):
         self.forest = forest
         self.matrix = matrix
+        self.mode = None
         self.nse = None
         self.nme = None
         self.nae = None
@@ -2929,6 +2930,7 @@ class Prediction:
         return self.nae
 
     def additive_prediction(self, depth=8):
+        self.mode = 'additive_mean'
         encoding = self.node_sample_encoding().T
         feature_predictions = self.node_additive_encoding().T
         prediction = np.dot(encoding.astype(dtype=int), feature_predictions)
@@ -2937,6 +2939,7 @@ class Prediction:
         return prediction
 
     def weighted_prediction(self, depth=8):
+        self.mode = 'weighted'
         encoding = self.node_sample_encoding().T
         weighted_predictions = self.node_weighted_predictions()
 
@@ -2946,6 +2949,7 @@ class Prediction:
 
     def mean_prediction(self):
 
+        self.mode = 'mean'
         leaf_mask = self.forest.leaf_mask()
         encoding_prediction = self.node_sample_encoding()[leaf_mask].T
         feature_predictions = self.node_mean_encoding()[leaf_mask]
@@ -2955,6 +2959,34 @@ class Prediction:
         prediction = np.dot(encoding_prediction, feature_predictions) / scaling
         prediction[scaling == 0] = 0
         return prediction
+
+    def prediction(self, mode=None):
+
+        if mode is None:
+            mode = self.mode
+        if mode is None:
+            mode = "additive_mean"
+
+        if mode == "additive_mean":
+            prediction = self.additive_prediction()
+        elif mode == "weighted":
+            prediction = self.weighted_prediction()
+        elif mode == "mean":
+            prediction = self.mean_prediction()
+        else:
+            raise Exception(f"Not a valid mode {mode}")
+
+        return prediction
+
+    def residuals(self, truth=None, mode='additive_mean'):
+
+        if truth is None:
+            truth = self.matrix
+
+        prediction = self.prediction(mode=mode)
+        residuals = truth - prediction
+
+        return residuals
 
     def sample_clusters(self):
 
@@ -2988,30 +3020,25 @@ class Prediction:
         if truth is None:
             truth = self.matrix
 
-        prediction = None
-        if mode == "additive_mean":
-            prediction = self.additive_prediction()
-        elif mode == "weighted":
-            prediction = self.weighted_prediction()
-        elif mode == "mean":
-            prediction = self.mean_prediction()
-        else:
-            raise Exception(f"Not a valid mode {mode}")
+        prediction = self.prediction(mode=mode)
 
         centered_truth = truth - np.mean(truth, axis=0)
-        true_residuals = np.power(centered_truth, 2)
-        true_residual_sum = np.sum(true_residuals)
+        true_square_residuals = np.power(centered_truth, 2)
+        true_residual_sum = np.sum(true_square_residuals)
 
-        forest_residuals = np.power(truth - prediction, 2)
+        forest_square_residuals = np.power(truth - prediction, 2)
 
-        predicted_residual_sum = np.sum(forest_residuals)
+        predicted_residual_sum = np.sum(forest_square_residuals)
 
         explained = predicted_residual_sum / true_residual_sum
 
         print(explained)
 
-        true_feature_residuals = np.sum(true_residuals, axis=0) + 1
-        forest_feature_residuals = np.sum(forest_residuals, axis=0) + 1
+        # Add one here to avoid divisions by zero, but this is bad
+        # Need better solution
+
+        true_feature_residuals = np.sum(true_square_residuals, axis=0) + 1
+        forest_feature_residuals = np.sum(forest_square_residuals, axis=0) + 1
 
         features_explained = forest_feature_residuals / true_feature_residuals
 
@@ -3027,8 +3054,8 @@ class Prediction:
         print((self.forest.output_features[feature_sort[-n:]],
                features_explained[feature_sort[-n:]]))
 
-        true_sample_residuals = np.sum(true_residuals, axis=1) + 1
-        forest_sample_residuals = np.sum(forest_residuals, axis=1) + 1
+        true_sample_residuals = np.sum(true_square_residuals, axis=1) + 1
+        forest_sample_residuals = np.sum(forest_square_residuals, axis=1) + 1
 
         samples_explained = forest_sample_residuals / true_sample_residuals
 
@@ -3043,6 +3070,38 @@ class Prediction:
             plt.show()
 
         return features_explained, samples_explained
+
+    def feature_mse(self,truth=None, mode='additive_mean'):
+
+        residuals = self.residuals(truth=truth,mode=mode)
+        mse = np.mean(np.power(residuals,2),axis=0)
+
+        return mse
+
+    def bootstrap_feature_mse(self,interval=.95,bootstraps=1000):
+        from sklearn.utils import resample
+
+        interval_boundary = max(int((bootstraps * (1 - interval)) / 2) , 1)
+        if interval_boundary == 1:
+            Exception("Interval too broad for number of bootstraps")
+
+        bootstrapped_mse = np.zeros((bootstraps,self.matrix.shape[1]))
+
+        squared_residuals = np.power(self.residuals(),2)
+
+        for i in range(bootstraps):
+            resampled = resample(squared_residuals)
+            bootstrapped_mse[i] = np.mean(resampled,axis=0)
+
+        intervals = []
+
+        for f_bs in bootstrapped_mse.T:
+            sorted_f_bs = sorted(f_bs)
+            lower = sorted_f_bs[interval_boundary]
+            upper = sorted_f_bs[-interval_boundary]
+            intervals.append((lower,upper))
+
+        return intervals
 
     def compare_predictions(self, other, n=10, no_plot=True):
 
