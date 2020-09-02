@@ -6,7 +6,7 @@ from pathlib import Path
 import copy
 from multiprocessing import Pool
 from scipy.cluster import hierarchy as hrc
-from sklearn.metrics import jaccard_similarity_score
+# from sklearn.metrics import jaccard_similarity_score
 from umap import UMAP
 from sklearn.decomposition import NMF
 from sklearn.manifold import MDS
@@ -43,7 +43,7 @@ import matplotlib as mpl
 mpl.rcParams['figure.dpi'] = 300
 
 
-jaccard_index = jaccard_similarity_score
+# jaccard_index = jaccard_similarity_score
 
 
 # from hdbscan import HDBSCAN
@@ -55,7 +55,6 @@ sdg_path = Path(__file__).parent.parent.absolute()
 sdg_path = str(sdg_path) + "/smooth_density_graph/"
 # print(f"Attempting to locate Smooth Density Graph in {sdg_path}")
 sys.path.append(sdg_path)
-import smooth_density_graph as sdg
 
 
 class Node:
@@ -541,7 +540,7 @@ class Node:
         if len(encodings) > 0:
             combined_encoding = np.vstack(encodings)
         else:
-            combined_encoding = np.zeros((0, matrix.shape[0]))
+            combined_encoding = np.zeros((0, matrix.shape[0]), dtype=bool)
         return combined_encoding
 
     def tree_path_vector(self):
@@ -632,6 +631,7 @@ class Node:
             "dispersion_cache",
             "mean_cache",
             "encoding_cache",
+            "weighted_prediction_cache"
         ]
 
         for cache in possible_caches:
@@ -1020,6 +1020,9 @@ class Forest:
         elif mode == 'weights':
             print("Weight reduction")
             encoding = self.weight_matrix(nodes)
+        elif mode == 'weighted_predictions':
+            print("Weighted prediction reduction")
+            encoding = self.weighted_prediction_matrix(nodes)
         else:
             raise Exception()
 
@@ -1076,6 +1079,7 @@ class Forest:
 ########################################################################
 ########################################################################
 
+
     def absolute_gain_matrix(self, nodes):
         gains = np.zeros((len(self.output_features), len(nodes)))
         for i, node in enumerate(nodes):
@@ -1117,6 +1121,12 @@ class Forest:
         for i, node in enumerate(nodes):
             weights[i] = node.weights
         return weights
+
+    def weighted_prediction_matrix(self,nodes):
+        weighted_predictions = np.zeros((len(nodes),len(self.output_features)))
+        for i,node in enumerate(nodes):
+            weighted_predictions[i] = node.weighted_prediction_cache
+        return weighted_predictions
 
 ########################################################################
 ########################################################################
@@ -1292,18 +1302,18 @@ class Forest:
 
     def predict_node_sample_encoding(self, matrix, leaves=True, depth=None):
         encodings = []
-        print("Predicting")
         for i, root in enumerate(self.roots()):
-            print(f"{i}")
+            print(f"Predicting tree:{i}\r", end='')
             encodings.append(root.predict_matrix_encoding(matrix))
-            encodings.append(np.ones(matrix.shape[0]))
+            encodings.append(np.ones(matrix.shape[0], dtype=bool))
+        print('')
         encoding = np.vstack(encodings)
         if leaves:
             encoding = encoding[self.leaf_mask()]
         if depth is not None:
             depth_mask = np.zeros(encoding.shape[0], dtype=bool)
             for n in self.nodes():
-                if n.depth <= depth:
+                if n.level <= depth:
                     depth_mask[n.index] = True
             encoding = encoding[depth_mask]
         return encoding
@@ -1327,15 +1337,15 @@ class Forest:
             predictions.append(node.feature_mean(feature))
         return predictions
 
-    def nodes_weighted_median_predict_feature(self, nodes, feature):
-        predictions = []
-        for node in nodes:
-            predictions.append(node.feature_median(feature))
-        fi = self.truth_dictionary.feature_dictionary[feature]
-        weights = []
-        for node in nodes:
-            weights.append(node.weights[fi])
-        return predictions, weights
+    def nodes_weighted_predict_feature(self, nodes, feature):
+        predictions = np.zeros(len(nodes))
+        feature_index = self.truth_dictionary.feature_dictionary[feature]
+        for i,node in enumerate(nodes):
+            predictions[i] = node.weighted_prediction_cache[feature_index]
+
+        single = np.sum(predictions) * (len(self.nodes()) / len(nodes))
+
+        return single
 
     def nodes_additive_predict_feature(self, nodes, feature):
         predictions = []
@@ -1356,109 +1366,50 @@ class Forest:
         for node in nodes:
             weights.append(node.weights[fi])
         return predictions, weights
+    #
+    # def weigh_leaves(self, positive=True, feature_slice=None):
+    #
+    #     if feature_slice is None:
+    #         features = self.output_features
+    #     else:
+    #         features = self.output_features[feature_slice]
+    #
+    #     median_representation = self.node_representation(
+    #         self.leaves(), mode='median')
+    #
+    #     for i, feature in enumerate(features):
+    #         print(f"{i}. Calculating weights for {feature} \r")
+    #         self.weigh_feature_median(
+    #             feature, positive=positive, representation=median_representation)
+    #     print("\n", end="")
+    #
+    #     plt.figure()
+    #     plt.hist(self.weight_matrix(self.leaves()).flatten(), bins=50, log=True)
+    #     plt.show()
 
-    def set_feature_weights(self, nodes, weights, feature):
-        feature_index = self.truth_dictionary.feature_dictionary[feature]
-        for node, weight in zip(nodes, weights):
-            node.weights[feature_index] = weight
+    #
+    #
+    # def weigh_nodes(self, positive=True, alpha=5., feature_slice=None):
+    #     from sklearn.linear_model import LinearRegression
+    #
+    #     if feature_slice is None:
+    #         features = self.output_features
+    #     else:
+    #         features = self.output_features[feature_slice]
+    #
+    #     additive_representation = self.node_representation(
+    #         self.nodes(), mode='additive_mean')
+    #
+    #     sample_encoding = self.node_representation(self.nodes(),mode="sample")
+    #
+    #     truth = self.output
+    #
+    #     # weighted_prediction = LinearRegression(fit_intercept=False).fit(sample_encoding.T,truth).coef_.T
+    #     weighted_prediction = Ridge(alpha=alpha, fit_intercept=False).fit(sample_encoding.T, truth).coef_.T
+    #
+    #     for i,wp in enumerate(weighted_prediction):
+    #         self.nodes()[i].weighted_prediction_cache = wp
 
-    def weigh_leaves(self, positive=True, feature_slice=None):
-
-        if feature_slice is None:
-            features = self.output_features
-        else:
-            features = self.output_features[feature_slice]
-
-        median_representation = self.node_representation(
-            self.leaves(), mode='median')
-
-        for i, feature in enumerate(features):
-            print(f"{i}. Calculating weights for {feature}")
-            self.weigh_feature_median(
-                feature, positive=positive, representation=median_representation)
-
-        plt.figure()
-        plt.hist(self.weight_matrix(self.leaves()).flatten(), bins=50, log=True)
-        plt.show()
-
-    def weigh_nodes(self, positive=True, feature_slice=None):
-
-        if feature_slice is None:
-            features = self.output_features
-        else:
-            features = self.output_features[feature_slice]
-
-        additive_representation = self.node_representation(
-            self.nodes(), mode='additive')
-
-        for i, feature in enumerate(features):
-            print(f"{i}. Calculating weights for {feature}")
-            self.weigh_feature(feature, positive=positive,
-                               representation=additive_representation)
-
-        plt.figure()
-        plt.hist(self.weight_matrix(self.nodes()).flatten(), bins=50, log=True)
-        plt.show()
-
-    def weigh_feature_additive(self, feature, positive=True, representation=None):
-
-        feature_index = self.truth_dictionary.feature_dictionary[feature]
-        nodes = self.nodes()
-
-        # nodes = self.leaves()
-        # raw_predictions = np.array(self.node_representation(mode='median'))
-        # raw_predictions = np.array([node.feature_mean(feature) for node in nodes])
-
-        if representation is None:
-            representation = self.node_representation(nodes, mode='additive')
-
-        raw_predictions = representation[:, feature_index]
-        # raw_predictions = self.node_representation(nodes,mode='additive')
-
-        node_encoding = self.node_sample_encoding(nodes).astype(dtype=float)
-
-        for i, prediction in enumerate(raw_predictions):
-            node_encoding[:, i] *= prediction
-
-        truth = self.output[:, feature_index]
-
-        weights = Ridge(alpha=5).fit(node_encoding, truth).coef_
-        # weights = NMF().fit()
-
-        if positive:
-            weights[weights < 0] = 0
-
-        self.set_feature_weights(nodes, weights, feature)
-
-    def weigh_feature_median(self, feature, positive=True, representation=None):
-
-        feature_index = self.truth_dictionary.feature_dictionary[feature]
-        nodes = self.leaves()
-
-        # nodes = self.leaves()
-        # raw_predictions = np.array(self.node_representation(mode='median'))
-        # raw_predictions = np.array([node.feature_mean(feature) for node in nodes])
-
-        if representation is None:
-            representation = self.node_representation(nodes, mode='median')
-
-        raw_predictions = representation[:, feature_index]
-        # raw_predictions = self.node_representation(nodes,mode='additive')
-
-        node_encoding = self.node_sample_encoding(nodes).astype(dtype=float)
-
-        for i, prediction in enumerate(raw_predictions):
-            node_encoding[:, i] *= prediction
-
-        truth = self.output[:, feature_index]
-
-        weights = Ridge(alpha=5).fit(node_encoding, truth).coef_
-        # weights = NMF().fit()
-
-        if positive:
-            weights[weights < 0] = 0
-
-        self.set_feature_weights(nodes, weights, feature)
 
     def predict_sample(self, sample):
 
@@ -1484,6 +1435,7 @@ class Forest:
         # print(f"Adjusted:{cluster_predictions}")
 
         cluster = np.argmax(cluster_predictions)
+        cluster = [self.sample_clusters[i].id for i in cluster]
 
         return cluster
 
@@ -1491,28 +1443,47 @@ class Forest:
         leaves = self.predict_sample_leaves(sample)
         leaf_clusters = [l.leaf_cluster for l in leaves]
         return np.mode(leaf_clusters)[0][0]
+    #
+    # def weighted_predict_sample(self, sample):
+    #
+    #     leaves = self.predict_sample_leaves(sample)
+    #     return self.weighted_node_vector_prediction(leaves)
+    #
+    # def weighted_node_vector_prediction(self, nodes):
+    #
+    #
+    #     predictions = self.node_representation(nodes,mode='weighted_predictions')
+    #     scaled =
+    #
+    #     # single_prediction = np.sum(predictions[mask],axis=0)
+    #     single_prediction = in_sum *
+    #     #
+    #     print(in_sum)
+    #     print(out_sum)
+    #     # single_prediction = np.sum(predictions,axis=0) * (expected_nodes / len(nodes))
+    #     #
+    #     print(single_prediction)
+    #
+    #     raise Exception("stop")
+    #     return single_prediction
 
-    def weighted_predict_sample(self, sample):
-
-        leaves = self.predict_sample_leaves(sample)
-        return self.weighted_node_vector_prediction(leaves)
-
-    def weighted_node_vector_prediction(self, nodes):
-        raw_predictions = self.mean_matrix(nodes)
-        feature_weight_matrix = self.feature_weight_matrix(nodes)
-
-        single_prediction = np.sum(
-            raw_predictions * feature_weight_matrix, axis=0) / np.sum(feature_weight_matrix, axis=0)
-
-        return single_prediction
-
-    def predict_additive(self, matrix):
-        encoding = self.predict_node_sample_encoding(matrix, leaves=False).T
+    def predict_additive(self, matrix, depth=8):
+        encoding = self.predict_node_sample_encoding(
+            matrix, depth=depth, leaves=False).T
         feature_predictions = self.mean_additive_matrix(self.nodes()).T
-        prediction = np.dot(encoding, feature_predictions)
+        prediction = np.dot(encoding.astype(dtype=int), feature_predictions)
         prediction /= len(self.trees)
 
         return prediction
+
+    def predict_weighted(self, matrix, depth=8):
+        encoding = self.predict_node_sample_encoding(
+            matrix, depth=depth, leaves=False).T
+        weighted_predictions = self.node_representation(self.nodes(),mode='weighted_predictions').T
+        prediction = np.dot(encoding.astype(dtype=int), weighted_predictions)
+
+        return prediction
+
 
     def predict_matrix(self, matrix, features=None, weighted=True):
 
@@ -1577,7 +1548,6 @@ class Forest:
 ########################################################################
 ########################################################################
 
-
     def split_labels(self, depth=3):
         nodes = self.nodes(depth=depth)
         return np.array([n.split_cluster for n in nodes])
@@ -1617,12 +1587,12 @@ class Forest:
             if pca is not None:
                 counts = PCA(n_components=pca).fit_transform(counts)
                 # self.set_sample_labels(sdg.fit_predict(counts, *args, **kwargs))
-                self.set_sample_labels(hacked_louvain(fast_knn(counts, **kwargs),resolution=resolution))
-
+                self.set_sample_labels(hacked_louvain(
+                    fast_knn(counts, **kwargs), resolution=resolution))
 
         return self.sample_labels
 
-    def cluster_samples_encoding(self, override=False, pca=None, depth=None,resolution=1, **kwargs):
+    def cluster_samples_encoding(self, override=False, pca=None, depth=None, resolution=1, **kwargs):
 
         # Todo: remove this hack
         if depth is not None:
@@ -1642,7 +1612,8 @@ class Forest:
             print("Clustering has already been done")
         else:
             # self.set_sample_labels(sdg.fit_predict(encoding, *args, **kwargs))
-            self.set_sample_labels(1 + hacked_louvain(fast_knn(encoding,**kwargs),resolution=resolution))
+            self.set_sample_labels(
+                1 + hacked_louvain(fast_knn(encoding, **kwargs), resolution=resolution))
 
         return self.sample_labels
 
@@ -1743,8 +1714,8 @@ class Forest:
 
     def node_change_absolute(self, nodes1, nodes2):
         # First we obtain the medians for the nodes in question
-        n1_medians = self.weighted_node_vector_prediction(nodes1)
-        n2_medians = self.weighted_node_vector_prediction(nodes2)
+        n1_predictions = self.node_vector_prediction(nodes1)
+        n2_predictions = self.node_vector_prediction(nodes2)
         difference = n2_medians - n1_medians
 
         # Then sort by difference and return
@@ -1757,10 +1728,6 @@ class Forest:
     def node_change_log_fold(self, nodes1, nodes2):
 
         # First we obtain the medians for the nodes in question
-        # n1_medians = self.weighted_node_vector_prediction(nodes1)
-        # n2_medians = self.weighted_node_vector_prediction(nodes2)
-        # n1_means = self.weighted_node_vector_prediction(nodes1)
-        # n2_means = self.weighted_node_vector_prediction(nodes2)
         n1_means = np.mean(self.mean_matrix(nodes1), axis=0)
         n2_means = np.mean(self.mean_matrix(nodes2), axis=0)
 
@@ -2090,6 +2057,7 @@ class Forest:
     #
     #     return cell_sort,leaf_sort,self.ouput_counts
 
+
     def plot_sample_clusters(self, colorize=True, label=True):
         # if not hasattr(self,'leaf_clusters'):
         #     print("Warning, leaf clusters not detected")
@@ -2251,6 +2219,7 @@ class Forest:
     def tsne(self, no_plot=False, pca=100, override=False, **kwargs):
         if not hasattr(self, 'tsne_coordinates') or override:
             if pca:
+                pca = np.min(pca, self.output.shape[0],self.output.shape[1])
                 self.tsne_coordinates = TSNE().fit_transform(
                     PCA(n_components=pca).fit_transform(self.output))
             else:
@@ -2406,7 +2375,6 @@ class Forest:
 ########################################################################
 ########################################################################
 
-
     def split_cluster_transition_matrix(self, depth=3):
 
         nodes = np.array(self.nodes(depth=depth))
@@ -2434,7 +2402,6 @@ class Forest:
 
         return transitions
 
-
     def directional_matrix(self):
 
         downstream_frequency = np.zeros(
@@ -2457,7 +2424,6 @@ class Forest:
                     upstream_frequency[cluster.id, ancestor.split_cluster] += 1
 
         return upstream_frequency, downstream_frequency
-
 
     def conditional_split_probability(self):
 
@@ -2528,7 +2494,6 @@ class Forest:
         odds_ratio = downstream_frequency / nephew_frequency
 
         return odds_ratio
-
 
     ###############
     # Here we have several alternative methods for constructing the consensus tree.
@@ -2663,7 +2628,6 @@ class Forest:
 #########################################################
 # HTML Visualization methods
 #########################################################
-
 
     def html_directory(self):
 
@@ -2930,14 +2894,17 @@ class Forest:
 
         return global_correlations
 
+
 class Prediction:
 
     def __init__(self, forest, matrix):
         self.forest = forest
         self.matrix = matrix
+        self.mode = None
         self.nse = None
         self.nme = None
         self.nae = None
+        self.nwp = None
         self.smc = None
         self.factors = None
 
@@ -2946,6 +2913,11 @@ class Prediction:
             self.nse = self.forest.predict_node_sample_encoding(
                 self.matrix, leaves=False)
         return self.nse
+
+    def node_weighted_predictions(self):
+        if self.nwp is None:
+            self.nwp = self.forest.node_representation(self.forest.nodes(),mode='weighted_predictions')
+        return self.nwp
 
     def node_mean_encoding(self):
         if self.nme is None:
@@ -2957,16 +2929,27 @@ class Prediction:
             self.nae = self.forest.mean_additive_matrix(self.forest.nodes())
         return self.nae
 
-    def additive_prediction(self):
+    def additive_prediction(self, depth=8):
+        self.mode = 'additive_mean'
         encoding = self.node_sample_encoding().T
         feature_predictions = self.node_additive_encoding().T
-        prediction = np.dot(encoding, feature_predictions)
+        prediction = np.dot(encoding.astype(dtype=int), feature_predictions)
         prediction /= len(self.forest.trees)
+
+        return prediction
+
+    def weighted_prediction(self, depth=8):
+        self.mode = 'weighted'
+        encoding = self.node_sample_encoding().T
+        weighted_predictions = self.node_weighted_predictions()
+
+        prediction = np.dot(encoding.astype(dtype=int), weighted_predictions)
 
         return prediction
 
     def mean_prediction(self):
 
+        self.mode = 'mean'
         leaf_mask = self.forest.leaf_mask()
         encoding_prediction = self.node_sample_encoding()[leaf_mask].T
         feature_predictions = self.node_mean_encoding()[leaf_mask]
@@ -2976,6 +2959,34 @@ class Prediction:
         prediction = np.dot(encoding_prediction, feature_predictions) / scaling
         prediction[scaling == 0] = 0
         return prediction
+
+    def prediction(self, mode=None):
+
+        if mode is None:
+            mode = self.mode
+        if mode is None:
+            mode = "additive_mean"
+
+        if mode == "additive_mean":
+            prediction = self.additive_prediction()
+        elif mode == "weighted":
+            prediction = self.weighted_prediction()
+        elif mode == "mean":
+            prediction = self.mean_prediction()
+        else:
+            raise Exception(f"Not a valid mode {mode}")
+
+        return prediction
+
+    def residuals(self, truth=None, mode='additive_mean'):
+
+        if truth is None:
+            truth = self.matrix
+
+        prediction = self.prediction(mode=mode)
+        residuals = truth - prediction
+
+        return residuals
 
     def sample_clusters(self):
 
@@ -3003,6 +3014,117 @@ class Prediction:
             predicted_factors[:, i] = self.forest.split_clusters[i].predict_sister_scores(
                 predicted_encoding)
         return predicted_factors
+
+    def prediction_report(self, truth=None, n=10, mode="additive_mean", no_plot=False):
+
+        if truth is None:
+            truth = self.matrix
+
+        prediction = self.prediction(mode=mode)
+
+        centered_truth = truth - np.mean(truth, axis=0)
+        true_square_residuals = np.power(centered_truth, 2)
+        true_residual_sum = np.sum(true_square_residuals)
+
+        forest_square_residuals = np.power(truth - prediction, 2)
+
+        predicted_residual_sum = np.sum(forest_square_residuals)
+
+        explained = predicted_residual_sum / true_residual_sum
+
+        print(explained)
+
+        # Add one here to avoid divisions by zero, but this is bad
+        # Need better solution
+
+        true_feature_residuals = np.sum(true_square_residuals, axis=0) + 1
+        forest_feature_residuals = np.sum(forest_square_residuals, axis=0) + 1
+
+        features_explained = forest_feature_residuals / true_feature_residuals
+
+        if not no_plot:
+            plt.figure()
+            plt.hist(features_explained, bins=np.arange(0, 1, .05), log=True)
+            plt.show()
+
+        feature_sort = np.argsort(features_explained)
+
+        print(
+            (self.forest.output_features[feature_sort[:n]], features_explained[feature_sort[:n]]))
+        print((self.forest.output_features[feature_sort[-n:]],
+               features_explained[feature_sort[-n:]]))
+
+        true_sample_residuals = np.sum(true_square_residuals, axis=1) + 1
+        forest_sample_residuals = np.sum(forest_square_residuals, axis=1) + 1
+
+        samples_explained = forest_sample_residuals / true_sample_residuals
+
+        sample_sort = np.argsort(samples_explained)
+
+        print(sample_sort[:n], samples_explained[sample_sort[:n]])
+        print(sample_sort[-n:], samples_explained[sample_sort[-n:]])
+
+        if not no_plot:
+            plt.figure()
+            plt.hist(samples_explained, bins=np.arange(0, 1, .05), log=True)
+            plt.show()
+
+        return features_explained, samples_explained
+
+    def feature_mse(self,truth=None, mode='additive_mean'):
+
+        residuals = self.residuals(truth=truth,mode=mode)
+        mse = np.mean(np.power(residuals,2),axis=0)
+
+        return mse
+
+    def bootstrap_feature_mse(self,interval=.95,bootstraps=1000):
+        from sklearn.utils import resample
+
+        interval_boundary = max(int((bootstraps * (1 - interval)) / 2) , 1)
+        if interval_boundary == 1:
+            Exception("Interval too broad for number of bootstraps")
+
+        bootstrapped_mse = np.zeros((bootstraps,self.matrix.shape[1]))
+
+        squared_residuals = np.power(self.residuals(),2)
+
+        for i in range(bootstraps):
+            resampled = resample(squared_residuals)
+            bootstrapped_mse[i] = np.mean(resampled,axis=0)
+
+        intervals = []
+
+        for f_bs in bootstrapped_mse.T:
+            sorted_f_bs = sorted(f_bs)
+            lower = sorted_f_bs[interval_boundary]
+            upper = sorted_f_bs[-interval_boundary]
+            intervals.append((lower,upper))
+
+        return intervals
+
+    def compare_predictions(self, other, n=10, no_plot=True):
+
+        own_features, _ = self.prediction_report(n=n, no_plot=no_plot)
+        other_features, _ = other.prediction_report(n=n, no_plot=no_plot)
+
+        print("###############################################################")
+        print("###############################################################")
+        print("###############################################################")
+
+        feature_delta = other_features - own_features
+
+        delta_sort = np.argsort(feature_delta)
+
+        print((self.forest.output_features[delta_sort[:n]],feature_delta[delta_sort[:n]]))
+        print((self.forest.output_features[delta_sort[-n:]],feature_delta[delta_sort[-n:]]))
+
+        if not no_plot:
+            plt.figure()
+            plt.hist(feature_delta,log=True)
+            plt.show()
+
+        return feature_delta
 
 
 class TruthDictionary:
@@ -3189,14 +3311,15 @@ class NodeCluster:
     def ancestors(self):
 
         return [a for n in self.nodes for a in n.ancestors()]
-
-    def weighted_feature_predictions(self):
-        return self.forest.weighted_node_vector_prediction(self.nodes)
+    #
+    # def weighted_feature_predictions(self):
+    #     return self.forest.weighted_node_vector_prediction(self.nodes)
 
 
 ################################################################################
 # Consensus tree methods. Kinda weird/hacky. Need to rethink
 ################################################################################
+
 
     def parent_cluster(self):
         try:
@@ -3240,6 +3363,7 @@ class NodeCluster:
 ##############################################################################
 # Feature change methods (eg changes relative to related nodes)
 ##############################################################################
+
 
     def changed_absolute_root(self):
         roots = self.forest.nodes(root=True, depth=0)
@@ -3424,24 +3548,26 @@ class NodeCluster:
 
         weights = self.sample_counts()
 
-        weighted_covariance = np.cov(self.forest.output.T,fweights=weights)
+        weighted_covariance = np.cov(self.forest.output.T, fweights=weights)
         diagonal = np.diag(weighted_covariance)
-        normalization = np.sqrt(np.outer(diagonal,diagonal))
-        correlations = weighted_covariance/normalization
+        normalization = np.sqrt(np.outer(diagonal, diagonal))
+        correlations = weighted_covariance / normalization
         return correlations
 
-    def most_local_correlations(self,n=10):
+    def most_local_correlations(self, n=10):
 
         global_correlations = self.forest.global_correlations()
         local_correlations = self.local_correlations()
 
         delta = local_correlations - global_correlations
 
-        ranks = np.argsort(np.abs(delta.flatten()));
+        ranks = np.argsort(np.abs(delta.flatten()))
 
-        tiled_indices = np.tile(np.arange(delta.shape[0]),((delta.shape[0]),1))
+        tiled_indices = np.tile(
+            np.arange(delta.shape[0]), ((delta.shape[0]), 1))
 
-        ranked = zip(tiled_indices.flatten()[ranks],tiled_indices.T.flatten()[ranks])
+        ranked = zip(tiled_indices.flatten()[
+                     ranks], tiled_indices.T.flatten()[ranks])
 
         return ranked[-n:]
 
@@ -3459,8 +3585,7 @@ class NodeCluster:
 
     def sister_scores(self):
         own = self.nodes
-        sisters = [sister for n in own for sister in [
-            n.sister(), ] if sister is not None]
+        sisters = self.sisters()
         own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
         sister_encoding = self.forest.node_sample_encoding(
             sisters).astype(dtype=int)
@@ -3560,8 +3685,10 @@ class NodeCluster:
         changed_vs_all, fold_vs_all = self.changed_absolute_root()
         changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
 
-        probability_enrichment = np.around(self.probability_enrichment(),3)
-        probability_enrichment = [(self.forest.split_clusters[i].name(),enrichment) for (i,enrichment) in enumerate(probability_enrichment)]
+        # probability_enrichment = np.around(self.probability_enrichment(),3)
+        probability_enrichment = np.around(self.odds_ratio(), 3)
+        probability_enrichment = [(self.forest.split_clusters[i].name(), enrichment) for (
+            i, enrichment) in enumerate(probability_enrichment)]
 
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
@@ -3595,14 +3722,16 @@ class NodeCluster:
 
         return jsn_dumps(attributes)
 
-    def top_gene_cross_reference(self,n):
+    def top_gene_cross_reference(self, n):
         import matplotlib.patheffects as PathEffects
 
         changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
 
-        important_features = list(changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
+        important_features = list(
+            changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
         important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
-        important_indices = [self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
+        important_indices = [
+            self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
 
         local_correlations = self.local_correlations()
         global_correlations = self.forest.global_correlations()
@@ -3610,51 +3739,56 @@ class NodeCluster:
         selected_local = local_correlations[important_indices].T[important_indices].T
         selected_global = local_correlations[important_indices].T[important_indices].T
 
-        fig = plt.figure()
-        ax = fig.add_axes([.3,0,.7,1])
+        fig = plt.figure(figsize=(n, n))
+        ax = fig.add_axes([.3, 0, .7, 1])
         plt.title("Local Correlations")
-        im = ax.imshow(selected_local,vmin=-1,vmax=1,cmap='bwr')
-        for i in range(n*2):
-            for j in range(n*2):
-                text = ax.text(j-.1, i-.1, np.around(selected_local[i, j],3),
-                       ha="center", va="center",c='w')
-                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
-                text = ax.text(j+.25, i+.25, f"({np.around(selected_global[i, j],3)} g)",
-                       ha="center", va="center",c='w',fontsize=5)
-                text.set_path_effects([PathEffects.withStroke(linewidth=1, foreground='black')])
+        im = ax.imshow(selected_local, vmin=-1, vmax=1, cmap='bwr')
+        for i in range(n * 2):
+            for j in range(n * 2):
+                text = ax.text(j - .1, i - .1, np.around(selected_local[i, j], 3),
+                               ha="center", va="center", c='w', fontsize=6)
+                text.set_path_effects(
+                    [PathEffects.withStroke(linewidth=.5, foreground='black')])
+                text = ax.text(j + .25, i + .25, f"({np.around(selected_global[i, j],3)} g)",
+                               ha="center", va="center", c='w', fontsize=4)
+                text.set_path_effects(
+                    [PathEffects.withStroke(linewidth=.2, foreground='black')])
 
-        plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
-        plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
+        plt.xticks(np.arange(n * 2), labels=important_features, rotation=45)
+        plt.yticks(np.arange(n * 2), labels=important_features, rotation=45)
         ax.yaxis.set_label_position("right")
         plt.colorbar(im)
         plt.show()
 
-    def top_local(self,n,no_plot=False):
+    def top_local(self, n, no_plot=False):
 
         import matplotlib.patheffects as PathEffects
 
         changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
 
-        important_features = list(changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
+        important_features = list(
+            changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
         important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
-        important_indices = [self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
+        important_indices = [
+            self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
 
         local_correlations = self.local_correlations()
 
         selected_local = local_correlations[important_indices].T[important_indices].T
 
-        fig = plt.figure()
-        ax = fig.add_axes([0,0,1,1])
+        fig = plt.figure(figsize=(n, n))
+        ax = fig.add_axes([0, 0, 1, 1])
         plt.title("Local Correlations")
-        im = ax.imshow(selected_local,vmin=-1,vmax=1,cmap='bwr')
-        for i in range(n*2):
-            for j in range(n*2):
-                text = ax.text(j, i, np.around(selected_local[i, j],3),
-                       ha="center", va="center",c='w')
-                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
+        im = ax.imshow(selected_local, vmin=-1, vmax=1, cmap='bwr')
+        for i in range(n * 2):
+            for j in range(n * 2):
+                text = ax.text(j, i, np.around(selected_local[i, j], 3),
+                               ha="center", va="center", c='w', fontsize=7)
+                text.set_path_effects(
+                    [PathEffects.withStroke(linewidth=.5, foreground='black')])
 
-        plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
-        plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
+        plt.xticks(np.arange(n * 2), labels=important_features, rotation=45)
+        plt.yticks(np.arange(n * 2), labels=important_features, rotation=45)
         plt.colorbar(im)
         plt.tight_layout()
         if no_plot:
@@ -3663,33 +3797,35 @@ class NodeCluster:
             plt.show()
             return fig
 
-
-    def top_global(self,n,no_plot=False):
+    def top_global(self, n, no_plot=False):
 
         import matplotlib.patheffects as PathEffects
 
         changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
 
-        important_features = list(changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
+        important_features = list(
+            changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
         important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
-        important_indices = [self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
+        important_indices = [
+            self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
 
         global_correlations = self.forest.global_correlations()
 
         selected_global = global_correlations[important_indices].T[important_indices].T
 
-        fig = plt.figure()
-        ax = fig.add_axes([0,0,1,1])
+        fig = plt.figure(figsize=(n, n))
+        ax = fig.add_axes([0, 0, 1, 1])
         plt.title("Global Correlations")
-        im = ax.imshow(selected_global,vmin=-1,vmax=1,cmap='bwr')
-        for i in range(n*2):
-            for j in range(n*2):
-                text = ax.text(j, i, np.around(selected_global[i, j],3),
-                       ha="center", va="center",c='w')
-                text.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='black')])
+        im = ax.imshow(selected_global, vmin=-1, vmax=1, cmap='bwr')
+        for i in range(n * 2):
+            for j in range(n * 2):
+                text = ax.text(j, i, np.around(selected_global[i, j], 3),
+                               ha="center", va="center", c='w', fontsize=7)
+                text.set_path_effects(
+                    [PathEffects.withStroke(linewidth=.5, foreground='black')])
 
-        plt.xticks(np.arange(n*2),labels=important_features,rotation=45)
-        plt.yticks(np.arange(n*2),labels=important_features,rotation=45)
+        plt.xticks(np.arange(n * 2), labels=important_features, rotation=45)
+        plt.yticks(np.arange(n * 2), labels=important_features, rotation=45)
         plt.colorbar(im)
         plt.tight_layout()
         if no_plot:
@@ -3698,26 +3834,26 @@ class NodeCluster:
             plt.show()
             return fig
 
-
-    def html_cross_reference(self,n=10,plot=False,output=None):
+    def html_cross_reference(self, n=10, plot=False, output=None):
 
         if output is None:
             location = self.html_directory()
         else:
             location = output
 
-        local_cross = self.top_local(n,no_plot=True)
-        global_cross = self.top_global(n,no_plot=True)
+        local_cross = self.top_local(n, no_plot=True)
+        global_cross = self.top_global(n, no_plot=True)
 
         print(f"Saving cross ref to {location}")
 
-        local_cross.savefig(location+"local_cross.png",bbox_inches='tight')
-        global_cross.savefig(location+"global_cross.png",bbox_inches='tight')
+        local_cross.savefig(location + "local_cross.png", bbox_inches='tight')
+        global_cross.savefig(
+            location + "global_cross.png", bbox_inches='tight')
 
         local_html = f'<img class="local_cross" src="{location + "local_cross.png"}" />'
         global_html = f'<img class="global_cross" src="{location + "global_cross.png"}" />'
 
-        return (local_html,global_html)
+        return (local_html, global_html)
 
     def html_cluster_summary(self, n=20, plot=True, output=None):
 
@@ -3737,7 +3873,7 @@ class NodeCluster:
 
         self.html_sister_scores(output=output)
         self.html_sample_scores(output=output)
-        self.html_cross_reference(n=n,output=output)
+        self.html_cross_reference(n=n, output=output)
 
         with open(html_location + "cluster_summary_template_js.html", 'w') as html_file:
             json_string = js_wrap("attributes", self.json_cluster_summary(n=n))
@@ -3877,7 +4013,11 @@ class NodeCluster:
 
     def probability_enrichment(self):
         enrichment = self.forest.probability_enrichment()
-        return enrichment[self.id]
+        return enrichment.T[self.id]
+
+    def odds_ratio(self):
+        odds_ratios = self.forest.split_cluster_odds_ratios()
+        return odds_ratios.T[self.id]
 
 ################################
 ################################

@@ -88,7 +88,7 @@ fn main() {
             //         };
             //     };
             // }
-
+            //
             while leaf_splits.len() > 0 {
                 let (node,(left,right),_) = leaf_splits.pop().unwrap();
                 if let Some(stem) = node.split(left,right) {
@@ -102,6 +102,20 @@ fn main() {
                     }
                 };
             };
+            //
+            // while leaf_splits.len() > 0 {
+            //     let (node,(left,right),_) = leaf_splits.pop().unwrap();
+            //     if let Some(stem) = node.split(left,right) {
+            //         // println!("depth:{:?}",stem.depth);
+            //         let (left_slice,right_slice) = stem.mut_children().split_at_mut(1);
+            //         if left_slice[0].depth < forest.parameters().depth_cutoff {
+            //             let left_split = left_slice[0].best_split();
+            //             let right_split = right_slice[0].best_split();
+            //             leaf_splits.extend(left_split);
+            //             leaf_splits.extend(right_split);
+            //         }
+            //     };
+            // };
 
             root.to_sidxn().dump(format!("{}.{}.compact",report_address,i).as_str());
             Some(())
