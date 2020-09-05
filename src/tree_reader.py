@@ -1467,6 +1467,13 @@ class Forest:
     #     raise Exception("stop")
     #     return single_prediction
 
+    def nodes_mean_predict_vector(self, nodes):
+
+        predictions = self.node_representation(nodes,mode='mean')
+        single_prediction = np.sum(predictions,axis=0) / len(nodes)
+
+        return single_prediction
+
     def predict_additive(self, matrix, depth=8):
         encoding = self.predict_node_sample_encoding(
             matrix, depth=depth, leaves=False).T
@@ -1589,6 +1596,8 @@ class Forest:
                 # self.set_sample_labels(sdg.fit_predict(counts, *args, **kwargs))
                 self.set_sample_labels(hacked_louvain(
                     fast_knn(counts, **kwargs), resolution=resolution))
+            else:
+                self.set_sample_labels(hacked_louvain(fast_knn(counts,**kwargs), resolution=resolution))
 
         return self.sample_labels
 
@@ -1714,9 +1723,9 @@ class Forest:
 
     def node_change_absolute(self, nodes1, nodes2):
         # First we obtain the medians for the nodes in question
-        n1_predictions = self.node_vector_prediction(nodes1)
-        n2_predictions = self.node_vector_prediction(nodes2)
-        difference = n2_medians - n1_medians
+        n1_predictions = self.nodes_mean_predict_vector(nodes1)
+        n2_predictions = self.nodes_mean_predict_vector(nodes2)
+        difference = n2_predictions - n1_predictions
 
         # Then sort by difference and return
         feature_order = np.argsort(difference)
@@ -2219,7 +2228,7 @@ class Forest:
     def tsne(self, no_plot=False, pca=100, override=False, **kwargs):
         if not hasattr(self, 'tsne_coordinates') or override:
             if pca:
-                pca = np.min(pca, self.output.shape[0],self.output.shape[1])
+                pca = np.min([pca, self.output.shape[0],self.output.shape[1]])
                 self.tsne_coordinates = TSNE().fit_transform(
                     PCA(n_components=pca).fit_transform(self.output))
             else:
@@ -3015,6 +3024,30 @@ class Prediction:
                 predicted_encoding)
         return predicted_factors
 
+    def compare_factors(self,other,bins=20):
+
+        from scipy.stats import entropy
+
+        own_factors = self.factor_matrix()
+        other_factors = other.factor_matrix()
+
+        symmetric_entropy = []
+        bin_interval = 2. / bins
+
+        for i,(own_f,other_f) in enumerate(zip(own_factors.T,other_factors.T)):
+            own_hist = np.histogram(own_f,bins=np.arange(-1,1,bin_interval))[0] + 1
+            other_hist = np.histogram(other_f,bins=np.arange(-1,1,.1))[0] + 1
+            own_prob = own_hist / np.sum(own_hist)
+            other_prob = other_hist / np.sum(other_hist)
+        #     print("##############################")
+            forward_entropy = entropy(own_prob,qk=other_prob)
+            reverse_entropy = entropy(other_prob,qk=own_prob)
+            average_entropy = (forward_entropy + reverse_entropy) / 2
+            symmetric_entropy.append(average_entropy)
+            print(f"{i} Entropy: {average_entropy}")
+
+        return symmetric_entropy
+
     def prediction_report(self, truth=None, n=10, mode="additive_mean", no_plot=False):
 
         if truth is None:
@@ -3078,7 +3111,7 @@ class Prediction:
 
         return mse
 
-    def bootstrap_feature_mse(self,interval=.95,bootstraps=1000):
+    def bootstrap_feature_mse(self,mode='additive_mean',interval=.95,bootstraps=1000):
         from sklearn.utils import resample
 
         interval_boundary = max(int((bootstraps * (1 - interval)) / 2) , 1)
@@ -3087,7 +3120,7 @@ class Prediction:
 
         bootstrapped_mse = np.zeros((bootstraps,self.matrix.shape[1]))
 
-        squared_residuals = np.power(self.residuals(),2)
+        squared_residuals = np.power(self.residuals(mode=mode),2)
 
         for i in range(bootstraps):
             resampled = resample(squared_residuals)
@@ -3101,30 +3134,74 @@ class Prediction:
             upper = sorted_f_bs[-interval_boundary]
             intervals.append((lower,upper))
 
-        return intervals
+        return np.array(intervals)
 
-    def compare_predictions(self, other, n=10, no_plot=True):
+    def jackknife_feature_mse_variance(self,mode='additive_mean'):
 
-        own_features, _ = self.prediction_report(n=n, no_plot=no_plot)
-        other_features, _ = other.prediction_report(n=n, no_plot=no_plot)
+        squared_residuals = np.power(self.residuals(mode=mode),2)
+        residual_sum = np.sum(squared_residuals,axis=0)
+        excluded_sum = residual_sum - squared_residuals
+        excluded_mse = excluded_sum / (squared_residuals.shape[0] - 1)
+        jackknife_variance = np.var(excluded_mse,axis=0)
 
-        print("###############################################################")
-        print("###############################################################")
-        print("###############################################################")
+        return jackknife_variance
 
-        feature_delta = other_features - own_features
 
-        delta_sort = np.argsort(feature_delta)
+    def compare_predictions(self, other, n=10, interval=.95, bootstraps=1000, no_plot=True):
 
-        print((self.forest.output_features[delta_sort[:n]],feature_delta[delta_sort[:n]]))
-        print((self.forest.output_features[delta_sort[-n:]],feature_delta[delta_sort[-n:]]))
+        own_mse = self.feature_mse()
+        other_mse = other.feature_mse(mode=self.mode)
+        delta_mse = other_mse - own_mse
+
+        # mse_intervals = self.bootstrap_feature_mse(interval=interval,bootstraps=bootstraps)
+        # matched = np.logical_and(mse_intervals[:,0] < other_mse, mse_intervals[:,1] > other_mse)
+        # mismatched = ~matched
+
+        from scipy.stats import t
+        jackknife_std = np.sqrt(self.jackknife_feature_mse_variance())
+        jackknife_z = delta_mse / jackknife_std
+        log_prob = t.logpdf(jackknife_z,len(self.forest.samples))
+        mismatched = log_prob < np.log((1-interval))
+
+        delta_sort = np.argsort(np.abs(delta_mse))
+
+        sorted_filtered = self.forest.output_features[delta_sort][mismatched[delta_sort]]
+        sorted_filtered_delta = delta_mse[delta_sort][mismatched[delta_sort]]
+
+        print((sorted_filtered[:n], sorted_filtered_delta[:n]))
+        print((sorted_filtered[-n:], sorted_filtered_delta[-n:]))
 
         if not no_plot:
             plt.figure()
-            plt.hist(feature_delta,log=True)
+            plt.hist(delta_mse,log=True)
             plt.show()
 
-        return feature_delta
+        return delta_mse,mismatched
+
+
+
+    # def compare_predictions(self, other, n=10, no_plot=True):
+    #
+    #     own_features, _ = self.prediction_report(n=n, no_plot=no_plot)
+    #     other_features, _ = other.prediction_report(n=n, no_plot=no_plot)
+    #
+    #     print("###############################################################")
+    #     print("###############################################################")
+    #     print("###############################################################")
+    #
+    #     feature_delta = other_features - own_features
+    #
+    #     delta_sort = np.argsort(feature_delta)
+    #
+    #     print((self.forest.output_features[delta_sort[:n]],feature_delta[delta_sort[:n]]))
+    #     print((self.forest.output_features[delta_sort[-n:]],feature_delta[delta_sort[-n:]]))
+    #
+    #     if not no_plot:
+    #         plt.figure()
+    #         plt.hist(feature_delta,log=True)
+    #         plt.show()
+    #
+    #     return feature_delta
 
 
 class TruthDictionary:
@@ -3550,8 +3627,9 @@ class NodeCluster:
 
         weighted_covariance = np.cov(self.forest.output.T, fweights=weights)
         diagonal = np.diag(weighted_covariance)
-        normalization = np.sqrt(np.outer(diagonal, diagonal))
+        normalization = np.sqrt(np.abs(np.outer(diagonal, diagonal)))
         correlations = weighted_covariance / normalization
+        correlations[normalization == 0] = 0
         return correlations
 
     def most_local_correlations(self, n=10):
@@ -3566,8 +3644,8 @@ class NodeCluster:
         tiled_indices = np.tile(
             np.arange(delta.shape[0]), ((delta.shape[0]), 1))
 
-        ranked = zip(tiled_indices.flatten()[
-                     ranks], tiled_indices.T.flatten()[ranks])
+        ranked = list(zip(tiled_indices.flatten()[
+                     ranks], tiled_indices.T.flatten()[ranks]))
 
         return ranked[-n:]
 
