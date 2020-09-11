@@ -3111,6 +3111,30 @@ class Prediction:
 
         return mse
 
+    def feature_inverse_determination(self,truth=None,mode='additive_mean'):
+
+        if truth is None:
+            truth = self.matrix
+
+        prediction = self.prediction(mode=mode)
+
+        centered_truth = truth - np.mean(truth, axis=0)
+        true_square_residuals = np.power(centered_truth, 2)
+        true_residual_sum = np.sum(true_square_residuals)
+
+        forest_square_residuals = np.power(truth - prediction, 2)
+
+        predicted_residual_sum = np.sum(forest_square_residuals)
+
+        explained = predicted_residual_sum / true_residual_sum
+
+        1 - explained
+
+        return explained
+
+    # def jackknife_determination():
+    #     pass
+
     def bootstrap_feature_mse(self,mode='additive_mean',interval=.95,bootstraps=1000):
         from sklearn.utils import resample
 
@@ -3142,7 +3166,7 @@ class Prediction:
         residual_sum = np.sum(squared_residuals,axis=0)
         excluded_sum = residual_sum - squared_residuals
         excluded_mse = excluded_sum / (squared_residuals.shape[0] - 1)
-        jackknife_variance = np.var(excluded_mse,axis=0)
+        jackknife_variance = np.var(excluded_mse,axis=0) * (squared_residuals.shape[0] - 1)
 
         return jackknife_variance
 
@@ -3630,6 +3654,7 @@ class NodeCluster:
         normalization = np.sqrt(np.abs(np.outer(diagonal, diagonal)))
         correlations = weighted_covariance / normalization
         correlations[normalization == 0] = 0
+        correlations[np.identity(correlations.shape[0],dtype=bool)] = 1.
         return correlations
 
     def most_local_correlations(self, n=10):
