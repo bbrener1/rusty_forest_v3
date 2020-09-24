@@ -72,6 +72,10 @@ class Node:
         self.level = level
         self.filter = Filter(node_json['filter'], self)
         self.samples = np.array(node_json['samples'])
+        if 'means' in node_json:
+            self.mean_cache = np.array(node_json['means'])
+        if 'medians' in node_json:
+            self.median_cache = np.array(node_json['medians'])
         self.weights = np.ones(len(self.forest.output_features))
         self.children = []
         self.child_clusters = ([], [])
@@ -86,6 +90,9 @@ class Node:
                 node_json['children'][0], self.tree, self.forest, parent=self, lr=0, level=level + 1, cache=cache))
             self.children.append(Node(
                 node_json['children'][1], self.tree, self.forest, parent=self, lr=1, level=level + 1, cache=cache))
+        else:
+            # self.local_samples = node_json['samples']
+            pass
 
     # Two nodes used for testing, not relevant for normal operation
 
@@ -106,6 +113,14 @@ class Node:
     #     test_node.features.extend(features)
     #     test_node.samples.extend(samples)
     #     return test_node
+    #
+    # def samples(self):
+    #     if self.local_samples is None:
+    #         leaves = self.leaves()
+    #         samples = [s for l in leaves for s in l]
+    #         return samples
+    #     else:
+    #         return self.local_samples
 
     def nodes(self):
 
@@ -1024,7 +1039,7 @@ class Forest:
             print("Weighted prediction reduction")
             encoding = self.weighted_prediction_matrix(nodes)
         else:
-            raise Exception()
+            raise Exception(f"Mode not recognized:{mode}")
 
         if pca > 0:
             encoding = PCA(n_components=pca).fit_transform(encoding)
@@ -2106,7 +2121,7 @@ class Forest:
             combined_labels[len(self.sample_labels):] = [
                 cluster.id for cluster in self.sample_clusters]
 
-        cluster_names = [cluster.id for cluster in self.sample_clusters]
+        cluster_names = [cluster.name() for cluster in self.sample_clusters]
         cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
 
         if label:
@@ -2156,7 +2171,7 @@ class Forest:
             combined_labels[self.output.shape[0]:] = [
                 cluster.id for cluster in self.split_clusters]
 
-        cluster_names = [cluster.id for cluster in self.split_clusters]
+        cluster_names = [cluster.name() for cluster in self.split_clusters]
         cluster_coordiantes = combined_coordinates[-1 *
                                                    len(self.split_clusters):]
 
@@ -2733,11 +2748,14 @@ class Forest:
             # the javascript without reading local files (siiigh)
 
             coordinate_json_string = jsn_dumps(coordinates)
+            name_json_string = jsn_dumps([c.name() for c in self.split_clusters])
             coordinate_html = f'<script> let treeCoordinates = {coordinate_json_string};</script>'
+            name_html = f'<script> let clusterNames = {name_json_string};</script>'
 
             # Finally, we append to the template to pass on the information
 
             html_report.write(coordinate_html)
+            html_report.write(name_html)
 
             # Next we want to calculate the connections between each node:
 
@@ -3126,14 +3144,12 @@ class Prediction:
 
         predicted_residual_sum = np.sum(forest_square_residuals)
 
-        explained = predicted_residual_sum / true_residual_sum
+        remaining = predicted_residual_sum / true_residual_sum
 
-        1 - explained
+        remaining
 
-        return explained
+        return remaining
 
-    # def jackknife_determination():
-    #     pass
 
     def bootstrap_feature_mse(self,mode='additive_mean',interval=.95,bootstraps=1000):
         from sklearn.utils import resample
@@ -3202,6 +3218,11 @@ class Prediction:
 
         return delta_mse,mismatched
 
+    def compare_to_shuffle(self,other):
+
+
+
+        pass
 
 
     # def compare_predictions(self, other, n=10, no_plot=True):
@@ -3255,6 +3276,15 @@ class SampleCluster:
         self.id = id
         self.samples = samples
         self.forest = forest
+
+    def name(self):
+        if hasattr(self,'stored_name'):
+            return self.stored_name
+        else:
+            return str(self.id)
+
+    def set_name(self,name):
+        self.stored_name = name
 
     def mask(self):
         mask = np.zeros(len(self.forest.samples), dtype=bool)
@@ -3349,7 +3379,7 @@ class SampleCluster:
         if plot:
             plt.figure()
             plt.title(
-                f"Distribution of Leaf Clusters in Sample Cluster {self.id}")
+                f"Distribution of Leaf Clusters in Sample Cluster {self.name()}")
             plt.bar(np.arange(len(leaf_clusters)), leaf_cluster_counts,)
             plt.ylabel("Frequency")
             plt.xlabel("Leaf Cluster")
@@ -3844,7 +3874,7 @@ class NodeCluster:
 
         fig = plt.figure(figsize=(n, n))
         ax = fig.add_axes([.3, 0, .7, 1])
-        plt.title("Local Correlations")
+        plt.title(f"Local Correlations in {self.name()}")
         im = ax.imshow(selected_local, vmin=-1, vmax=1, cmap='bwr')
         for i in range(n * 2):
             for j in range(n * 2):
@@ -3881,7 +3911,7 @@ class NodeCluster:
 
         fig = plt.figure(figsize=(n, n))
         ax = fig.add_axes([0, 0, 1, 1])
-        plt.title("Local Correlations")
+        plt.title(f"Local Correlations in {self.name()}")
         im = ax.imshow(selected_local, vmin=-1, vmax=1, cmap='bwr')
         for i in range(n * 2):
             for j in range(n * 2):
@@ -4015,7 +4045,7 @@ class NodeCluster:
         sister_scores = self.sister_scores()
         plt.figure()
         plt.title(
-            "Distribution of Samples \nIn This Cluster (Red) vs Its Sisters (Blue)")
+            f"Distribution of Samples \nIn {self.name()} (Red) vs Its Sisters (Blue)")
         plt.scatter(forest_coordinates[:, 0], forest_coordinates[:, 1], s=1,
                     alpha=.6, c=sister_scores, norm=DivergingNorm(0), cmap='bwr')
         plt.colorbar()
@@ -4037,7 +4067,7 @@ class NodeCluster:
         forest_coordinates = self.forest.coordinates()
         sample_scores = self.sample_scores()
         plt.figure()
-        plt.title("Frequency of Samples In This Cluster")
+        plt.title(f"Frequency of Samples In {self.name()}")
         plt.scatter(
             forest_coordinates[:, 0], forest_coordinates[:, 1], s=1, alpha=.6, c=sample_scores)
         plt.colorbar()
