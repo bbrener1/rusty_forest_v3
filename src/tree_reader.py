@@ -71,7 +71,8 @@ class Node:
         self.lr = lr
         self.level = level
         self.filter = Filter(node_json['filter'], self)
-        self.samples = np.array(node_json['samples'])
+        # self.samples = np.array(node_json['samples'])
+        self.local_samples = None
         if 'means' in node_json:
             self.mean_cache = np.array(node_json['means'])
         if 'medians' in node_json:
@@ -91,8 +92,8 @@ class Node:
             self.children.append(Node(
                 node_json['children'][1], self.tree, self.forest, parent=self, lr=1, level=level + 1, cache=cache))
         else:
-            # self.local_samples = node_json['samples']
-            pass
+            self.local_samples = node_json['samples']
+            # pass
 
     # Two nodes used for testing, not relevant for normal operation
 
@@ -114,13 +115,21 @@ class Node:
     #     test_node.samples.extend(samples)
     #     return test_node
     #
-    # def samples(self):
-    #     if self.local_samples is None:
-    #         leaves = self.leaves()
-    #         samples = [s for l in leaves for s in l]
-    #         return samples
-    #     else:
-    #         return self.local_samples
+    def samples(self):
+        if self.local_samples is None:
+            leaves = self.leaves()
+            samples = [s for l in leaves for s in l.local_samples]
+            return samples
+        else:
+            return self.local_samples
+
+    def pop(self):
+        if hasattr(self,'pop_cache'):
+            return self.pop_cache
+        else:
+            pop = len(self.samples())
+            self.pop_cache = pop
+            return self.pop_cache
 
     def nodes(self):
 
@@ -135,10 +144,11 @@ class Node:
         return nodes
 
     def encoding(self):
-        if hasattr(self, 'encoding_cache'):
-            return self.encoding_cache
+        if self.cache:
+            if hasattr(self, 'encoding_cache'):
+                return self.encoding_cache
         encoding = np.zeros(len(self.forest.samples), dtype=bool)
-        encoding[self.samples] = True
+        encoding[self.samples()] = True
         if self.cache:
             self.encoding_cache = encoding
         return encoding
@@ -152,7 +162,7 @@ class Node:
         # Obtains the count matrix of samples belonging to this node
         # Samples are in order they are in the node
 
-        copy = self.forest.output[self.samples].copy()
+        copy = self.forest.output[self.samples()].copy()
         return copy
 
     def medians(self):
@@ -174,7 +184,8 @@ class Node:
         # Much faster than getting the entire matrix, obviously, unless medians are cached
 
         fi = self.forest.truth_dictionary.feature_dictionary[feature]
-        values = [self.forest.output[s, fi] for s in self.samples]
+        # values = [self.forest.output[s, fi] for s in self.samples()]
+        values = self.forest.output[self.sample_mask()].T[fi]
         return np.median(values)
 
     def means(self):
@@ -199,7 +210,8 @@ class Node:
         if hasattr(self, 'mean_cache'):
             return self.mean_cache[fi]
         else:
-            values = [self.forest.output[s, fi] for s in self.samples]
+            # values = [self.forest.output[s, fi] for s in self.samples()]
+            values = self.forest.output[self.sample_mask()].T[fi]
             return np.mean(values)
 
     def dispersions(self):
@@ -212,7 +224,7 @@ class Node:
         if self.cache:
             if hasattr(self, 'dispersion_cache'):
                 return self.dispersion_cache
-        matrix = self.forest.output[self.samples]
+        matrix = self.forest.output[self.samples()]
         dispersions = ssme(matrix, axis=0)
         if self.cache:
             self.dispersion_cache = dispersions
@@ -415,11 +427,11 @@ class Node:
         # Used for plotting individual trees, returns a nested list of proportions
         # of samples present
 
-        total_width = sum([len(x.samples) for x in self.children])
+        total_width = sum([x.pop() for x in self.children])
         child_proportions = []
         for child in self.children:
             child_proportions.append(
-                [float(len(child.samples)) / float(total_width), ])
+                [float(child.pop()) / float(total_width), ])
             child_proportions[-1].append(child.plotting_representation())
         # print(child_proportions)
         return child_proportions
@@ -428,7 +440,7 @@ class Node:
 
         # Returns formal names (if any) for samples in this node
 
-        return [self.forest.samples[i] for i in self.samples]
+        return [self.forest.samples[i] for i in self.samples()]
 
     def prerequisite_levels(self):
 
@@ -624,7 +636,7 @@ class Node:
             if hasattr(self, 'sample_cluster_cache'):
                 return self.sample_cluster_cache
 
-        sample_clusters = self.forest.sample_cluster_encoding.T[self.samples].T
+        sample_clusters = self.forest.sample_cluster_encoding.T[self.samples()].T
         sample_cluster_means = np.mean(sample_clusters, axis=1)
 
         if self.cache:
@@ -770,15 +782,15 @@ class Tree:
         levels = self.root.nodes_by_level()
         jump = height / len(levels)
         for i, level in enumerate(levels):
-            level_samples = sum([len(node.samples) for node in level])
+            level_samples = sum([node.pop() for node in level])
             next_level_samples = 0
             if i < (len(levels) - 1):
-                next_level_samples = sum([len(node.samples)
+                next_level_samples = sum([node.pop()
                                           for node in levels[i + 1]])
             consumed_width = 0
             next_consumed_width = 0
             for j, node in enumerate(level):
-                sample_weight = float(len(node.samples)) / float(level_samples)
+                sample_weight = float(node.pop()) / float(level_samples)
                 half_width = (width * sample_weight) / 2
                 center = consumed_width + half_width
                 consumed_width = consumed_width + (half_width * 2)
@@ -786,7 +798,7 @@ class Tree:
                 if i < (len(levels) - 1):
                     for child in node.children:
                         child_sample_weight = float(
-                            len(child.samples)) / float(next_level_samples)
+                            child.pop()) / float(next_level_samples)
                         child_half_width = (width * child_sample_weight) / 2
                         child_center = next_consumed_width + child_half_width
                         next_consumed_width = next_consumed_width + \
@@ -847,7 +859,7 @@ class Tree:
 
     def tree_movie_frame(self, location, level=0, sorted=True, previous_frame=None, split_lines=True):
         descent_nodes = self.descend(level)
-        total_samples = sum([len(node.samples) for node in descent_nodes])
+        total_samples = sum([node.pop() for node in descent_nodes])
         heatmap = np.zeros((total_samples, len(self.forest.output_features)))
         node_splits = []
         running_samples = 0
@@ -896,7 +908,7 @@ class Tree:
 
     def plot_leaf_counts(self):
         leaves = self.leaves()
-        total_samples = sum([len(x.samples) for x in leaves])
+        total_samples = sum([x.pop() for x in leaves])
         heatmap = np.zeros((total_samples, len(self.forest.output_features)))
         running_samples = 0
         for leaf in leaves:
@@ -1061,11 +1073,13 @@ class Forest:
     def node_sister_encoding(self, nodes):
         encoding = np.zeros((len(self.samples), len(nodes)), dtype=int)
         for i, node in enumerate(nodes):
-            for sample in node.samples:
-                encoding[sample, i] = 1
+            encoding[:,i][node.sample_mask()] = 1
+            # for sample in node.samples():
+            #     encoding[sample, i] = 1
             if node.sister() is not None:
-                for sample in node.sister().samples:
-                    encoding[sample, i] = -1
+                encoding[:,i][node.sister().sample_mask()] = 1
+                # for sample in node.sister().samples():
+                #     encoding[sample, i] = -1
         return encoding
 
     def trim(self, depth):
@@ -1436,7 +1450,7 @@ class Forest:
 
         leaves = self.predict_sample_leaves(sample)
         cluster_odds = np.array(
-            [len(s.samples) / self.output.shape[0] for s in self.sample_clusters])
+            [len(s.samples()) / self.output.shape[0] for s in self.sample_clusters])
         cluster_predictions = np.zeros(len(self.sample_clusters))
         for i, cluster in enumerate(self.sample_clusters):
             # predictions,weights = self.nodes_weighted_median_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
@@ -1521,7 +1535,7 @@ class Forest:
     def predict_matrix_clusters(self, matrix, features=None):
 
         cluster_odds = np.array(
-            [len(s.samples) / self.output.shape[0] for s in self.sample_clusters])
+            [len(s.samples()) / self.output.shape[0] for s in self.sample_clusters])
         cluster_features = [self.truth_dictionary.feature_dictionary[f"sample_cluster_{i}"] for i in range(
             len(self.sample_clusters))]
 
@@ -2956,8 +2970,8 @@ class Prediction:
             self.nae = self.forest.mean_additive_matrix(self.forest.nodes())
         return self.nae
 
+
     def additive_prediction(self, depth=8):
-        self.mode = 'additive_mean'
         encoding = self.node_sample_encoding().T
         feature_predictions = self.node_additive_encoding().T
         prediction = np.dot(encoding.astype(dtype=int), feature_predictions)
@@ -2966,7 +2980,6 @@ class Prediction:
         return prediction
 
     def weighted_prediction(self, depth=8):
-        self.mode = 'weighted'
         encoding = self.node_sample_encoding().T
         weighted_predictions = self.node_weighted_predictions()
 
@@ -2975,8 +2988,6 @@ class Prediction:
         return prediction
 
     def mean_prediction(self):
-
-        self.mode = 'mean'
         leaf_mask = self.forest.leaf_mask()
         encoding_prediction = self.node_sample_encoding()[leaf_mask].T
         feature_predictions = self.node_mean_encoding()[leaf_mask]
@@ -2993,6 +3004,7 @@ class Prediction:
             mode = self.mode
         if mode is None:
             mode = "additive_mean"
+        self.mode = mode
 
         if mode == "additive_mean":
             prediction = self.additive_prediction()
@@ -3014,6 +3026,48 @@ class Prediction:
         residuals = truth - prediction
 
         return residuals
+
+    def node_residuals(self, node, truth=None):
+
+        if truth is None:
+            truth = self.matrix
+
+        sample_predictions = self.node_sample_encoding()[node.index]
+        feature_predictions = self.node_mean_encoding()[node.index]
+        residuals = truth[sample_predictions] - feature_predictions
+
+        return residuals
+
+
+    def node_feature_remaining_error(self,nodes):
+
+        per_node_fraction = []
+
+        for node in nodes:
+
+            if node.parent is not None:
+
+                node_residuals = self.node_residuals(node)
+                remaining_error = np.sum(np.power(node_residuals,2),axis=0)
+
+                sister_residuals = self.node_residuals(node.sister())
+                remaining_error += np.sum(np.power(sister_residuals,2),axis=0)
+
+                parent_residuals = self.node_residuals(node.parent)
+                original_error += np.sum(np.power(parent_residuals,2),axis=0)
+
+                # Avoid nans:
+                #(there's gotta be a better way) *billy mays theme starts*
+
+                remaining_error += 1
+                original_error += 1
+
+                per_node_fraction.append(remaining_error / original_error)
+
+            else:
+                per_node_fraction.append(1)
+
+        return np.mean(np.array(per_node_fraction),axis=0)
 
     def sample_clusters(self):
 
@@ -3129,7 +3183,7 @@ class Prediction:
 
         return mse
 
-    def feature_inverse_determination(self,truth=None,mode='additive_mean'):
+    def feature_remaining_error(self,truth=None,mode='additive_mean'):
 
         if truth is None:
             truth = self.matrix
@@ -3146,9 +3200,11 @@ class Prediction:
 
         remaining = predicted_residual_sum / true_residual_sum
 
-        remaining
-
         return remaining
+
+    def feature_coefficient_of_determination(self,truth=None,mode='additive_mean'):
+        remaining_error = self.feature_remaining_error(truth=truth,mode=mode)
+        return 1 - remaining_error
 
 
     def bootstrap_feature_mse(self,mode='additive_mean',interval=.95,bootstraps=1000):
@@ -3218,11 +3274,26 @@ class Prediction:
 
         return delta_mse,mismatched
 
-    def compare_to_shuffle(self,other):
+    def compare_cod_to_shuffle(self,shuffle,fdr=.05):
 
+        own_cod = self.feature_coefficient_of_determination()
+        null_cod = shuffle.feature_coefficient_of_determination()
 
+        own_cod_sort = np.argsort(own_cod)
+        null_cod_sort = np.argsort(null_cod)
 
-        pass
+        own_sorted = own_cod[own_cod_sort]
+
+        for i in range(1,len(own_cod)):
+            threshold = own_sorted[-i]
+            chance = np.sum(null_cod_sort < threshold)
+            true_fraction = i/(i+chance)
+            if true_fraction > (1-fdr):
+                break
+
+        significant_mask = own_cod < threshold
+
+        return significant_mask
 
 
     # def compare_predictions(self, other, n=10, no_plot=True):
@@ -3673,7 +3744,7 @@ class NodeCluster:
         return np.mean([n.level for n in self.nodes])
 
     def mean_population(self):
-        return np.mean([len(n.samples) for n in self.nodes])
+        return np.mean([n.pop() for n in self.nodes])
 
     def local_correlations(self):
 
