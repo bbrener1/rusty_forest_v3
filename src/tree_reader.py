@@ -268,7 +268,7 @@ class Node:
         # What is the change in absolute values of medians of all features between parent node
         # and this node?
 
-        # What the hell is this method? If you have a sample, and you have a number of nodes
+        # If you have a sample, and you have a number of nodes
         # FROM THE SAME TREE that this sample belongs to, then summing the additive gains of
         # all nodes produces a prediction for that sample.
 
@@ -1019,6 +1019,7 @@ class Forest:
         return encoding
 
     def node_representation(self, nodes=None, mode='gain', metric=None, pca=0):
+        from sklearn.decomposition import IncrementalPCA
 
         if nodes is None:
             nodes = self.nodes()
@@ -1054,7 +1055,18 @@ class Forest:
             raise Exception(f"Mode not recognized:{mode}")
 
         if pca > 0:
-            encoding = PCA(n_components=pca).fit_transform(encoding)
+            model = IncrementalPCA(n_components=pca)
+            chunks = int(np.floor(encoding.shape[0]/10000))
+            for i in range(chunks):
+                print(f"Learning chunk {i}\r",end='')
+                model.partial_fit(encoding[i*10000:(i+1)*10000])
+            transformed = np.zeros((encoding.shape[0],pca))
+            for i in range(chunks):
+                print(f"Transforming chunk {i}\r",end='')
+                transformed[i*10000:(i+1)*10000] = model.transform(encoding[i*10000:(i+1)*10000])
+            print("")
+            encoding = transformed
+            # encoding = PCA(n_components=pca).fit_transform(encoding)
 
         if metric is not None:
             representation = squareform(pdist(encoding, metric=metric))
