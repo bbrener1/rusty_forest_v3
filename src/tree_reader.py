@@ -1055,17 +1055,29 @@ class Forest:
             raise Exception(f"Mode not recognized:{mode}")
 
         if pca > 0:
+            # print(f"debug:{encoding.shape}")
+            from sklearn.decomposition import IncrementalPCA
             model = IncrementalPCA(n_components=pca)
-            chunks = int(np.floor(encoding.shape[0]/10000))
-            for i in range(chunks):
+            chunks = int(np.floor(encoding.shape[0]/10000)) + 1
+            last_chunk = encoding.shape[0] - ((chunks-1) * 10000)
+            for i in range(1,chunks):
                 print(f"Learning chunk {i}\r",end='')
-                model.partial_fit(encoding[i*10000:(i+1)*10000])
+                model.partial_fit(encoding[(i-1)*10000:i*10000])
+            model.partial_fit(encoding[-last_chunk:])
+            # transformed = model.transform(encoding)
+            # print(f"Chunks:{chunks}")
             transformed = np.zeros((encoding.shape[0],pca))
-            for i in range(chunks):
+            for i in range(1,chunks):
                 print(f"Transforming chunk {i}\r",end='')
-                transformed[i*10000:(i+1)*10000] = model.transform(encoding[i*10000:(i+1)*10000])
+                # print(f"coordinates:{((i-1)*10000,i*10000)}")
+                transformed[(i-1)*10000:i*10000] = model.transform(encoding[(i-1)*10000:i*10000])
+            # print(f"coordinates:{-last_chunk}")
+            transformed[-last_chunk:] = model.transform(encoding[-last_chunk:])
             print("")
             encoding = transformed
+            # encoding = PCA(n_components=pca).fit_transform(encoding)
+
+
             # encoding = PCA(n_components=pca).fit_transform(encoding)
 
         if metric is not None:
@@ -3038,6 +3050,7 @@ class Prediction:
         residuals = truth - prediction
 
         return residuals
+
 
     def node_residuals(self, node, truth=None):
 
