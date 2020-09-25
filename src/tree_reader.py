@@ -1042,7 +1042,30 @@ class Forest:
             raise Exception(f"Mode not recognized:{mode}")
 
         if pca > 0:
-            encoding = PCA(n_components=pca).fit_transform(encoding)
+            # print(f"debug:{encoding.shape}")
+            from sklearn.decomposition import IncrementalPCA
+            model = IncrementalPCA(n_components=pca)
+            chunks = int(np.floor(encoding.shape[0]/10000)) + 1
+            last_chunk = encoding.shape[0] - ((chunks-1) * 10000)
+            for i in range(1,chunks):
+                print(f"Learning chunk {i}\r",end='')
+                model.partial_fit(encoding[(i-1)*10000:i*10000])
+            model.partial_fit(encoding[-last_chunk:])
+            # transformed = model.transform(encoding)
+            # print(f"Chunks:{chunks}")
+            transformed = np.zeros((encoding.shape[0],pca))
+            for i in range(1,chunks):
+                print(f"Transforming chunk {i}\r",end='')
+                # print(f"coordinates:{((i-1)*10000,i*10000)}")
+                transformed[(i-1)*10000:i*10000] = model.transform(encoding[(i-1)*10000:i*10000])
+            # print(f"coordinates:{-last_chunk}")
+            transformed[-last_chunk:] = model.transform(encoding[-last_chunk:])
+            print("")
+            encoding = transformed
+            # encoding = PCA(n_components=pca).fit_transform(encoding)
+
+
+            # encoding = PCA(n_components=pca).fit_transform(encoding)
 
         if metric is not None:
             representation = squareform(pdist(encoding, metric=metric))
@@ -3014,6 +3037,49 @@ class Prediction:
         residuals = truth - prediction
 
         return residuals
+
+
+    def node_residuals(self, node, truth=None):
+
+        if truth is None:
+            truth = self.matrix
+
+        sample_predictions = self.node_sample_encoding()[node.index]
+        feature_predictions = self.node_mean_encoding()[node.index]
+        residuals = truth[sample_predictions] - feature_predictions
+
+        return residuals
+
+
+    def node_feature_remaining_error(self,nodes):
+
+        per_node_fraction = []
+
+        for node in nodes:
+
+            if node.parent is not None:
+
+                node_residuals = self.node_residuals(node)
+                remaining_error = np.sum(np.power(node_residuals,2),axis=0)
+
+                sister_residuals = self.node_residuals(node.sister())
+                remaining_error += np.sum(np.power(sister_residuals,2),axis=0)
+
+                parent_residuals = self.node_residuals(node.parent)
+                original_error += np.sum(np.power(parent_residuals,2),axis=0)
+
+                # Avoid nans:
+                #(there's gotta be a better way) *billy mays theme starts*
+
+                remaining_error += 1
+                original_error += 1
+
+                per_node_fraction.append(remaining_error / original_error)
+
+            else:
+                per_node_fraction.append(1)
+
+        return np.mean(np.array(per_node_fraction),axis=0)
 
     def sample_clusters(self):
 
