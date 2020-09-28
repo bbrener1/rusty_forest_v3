@@ -2979,11 +2979,6 @@ class Prediction:
                 self.matrix, leaves=False)
         return self.nse
 
-    def node_weighted_predictions(self):
-        if self.nwp is None:
-            self.nwp = self.forest.node_representation(self.forest.nodes(),mode='weighted_predictions')
-        return self.nwp
-
     def node_mean_encoding(self):
         if self.nme is None:
             self.nme = self.forest.mean_matrix(self.forest.nodes())
@@ -3000,14 +2995,6 @@ class Prediction:
         feature_predictions = self.node_additive_encoding().T
         prediction = np.dot(encoding.astype(dtype=int), feature_predictions)
         prediction /= len(self.forest.trees)
-
-        return prediction
-
-    def weighted_prediction(self, depth=8):
-        encoding = self.node_sample_encoding().T
-        weighted_predictions = self.node_weighted_predictions()
-
-        prediction = np.dot(encoding.astype(dtype=int), weighted_predictions)
 
         return prediction
 
@@ -3032,8 +3019,6 @@ class Prediction:
 
         if mode == "additive_mean":
             prediction = self.additive_prediction()
-        elif mode == "weighted":
-            prediction = self.weighted_prediction()
         elif mode == "mean":
             prediction = self.mean_prediction()
         else:
@@ -3050,6 +3035,15 @@ class Prediction:
         residuals = truth - prediction
 
         return residuals
+
+    def null_residuals(self,truth=None):
+
+        if truth is None:
+            truth = self.matrix
+
+        centered_truth = truth - np.mean(truth, axis=0)
+
+        return centered_truth
 
 
     def node_residuals(self, node, truth=None):
@@ -3147,30 +3141,23 @@ class Prediction:
 
     def prediction_report(self, truth=None, n=10, mode="additive_mean", no_plot=False):
 
-        if truth is None:
-            truth = self.matrix
+        null_square_residuals = np.power(self.null_residuals(truth=truth), 2)
+        null_residual_sum = np.sum(null_square_residuals)
 
-        prediction = self.prediction(mode=mode)
-
-        centered_truth = truth - np.mean(truth, axis=0)
-        true_square_residuals = np.power(centered_truth, 2)
-        true_residual_sum = np.sum(true_square_residuals)
-
-        forest_square_residuals = np.power(truth - prediction, 2)
-
+        forest_square_residuals = np.power(self.residuals(truth=truth), 2)
         predicted_residual_sum = np.sum(forest_square_residuals)
 
-        explained = predicted_residual_sum / true_residual_sum
+        explained = predicted_residual_sum / null_residual_sum
 
         print(explained)
 
         # Add one here to avoid divisions by zero, but this is bad
         # Need better solution
 
-        true_feature_residuals = np.sum(true_square_residuals, axis=0) + 1
+        null_feature_residuals = np.sum(null_square_residuals, axis=0) + 1
         forest_feature_residuals = np.sum(forest_square_residuals, axis=0) + 1
 
-        features_explained = forest_feature_residuals / true_feature_residuals
+        features_explained = forest_feature_residuals / null_feature_residuals
 
         if not no_plot:
             plt.figure()
@@ -3184,10 +3171,10 @@ class Prediction:
         print((self.forest.output_features[feature_sort[-n:]],
                features_explained[feature_sort[-n:]]))
 
-        true_sample_residuals = np.sum(true_square_residuals, axis=1) + 1
+        null_sample_residuals = np.sum(null_square_residuals, axis=1) + 1
         forest_sample_residuals = np.sum(forest_square_residuals, axis=1) + 1
 
-        samples_explained = forest_sample_residuals / true_sample_residuals
+        samples_explained = forest_sample_residuals / null_sample_residuals
 
         sample_sort = np.argsort(samples_explained)
 
@@ -3208,55 +3195,6 @@ class Prediction:
 
         return mse
 
-    def feature_remaining_error(self,truth=None,mode='additive_mean'):
-
-        if truth is None:
-            truth = self.matrix
-
-        prediction = self.prediction(mode=mode)
-
-        centered_truth = truth - np.mean(truth, axis=0)
-        true_square_residuals = np.power(centered_truth, 2)
-        true_residual_sum = np.sum(true_square_residuals)
-
-        forest_square_residuals = np.power(truth - prediction, 2)
-
-        predicted_residual_sum = np.sum(forest_square_residuals)
-
-        remaining = predicted_residual_sum / true_residual_sum
-
-        return remaining
-
-    def feature_coefficient_of_determination(self,truth=None,mode='additive_mean'):
-        remaining_error = self.feature_remaining_error(truth=truth,mode=mode)
-        return 1 - remaining_error
-
-
-    def bootstrap_feature_mse(self,mode='additive_mean',interval=.95,bootstraps=1000):
-        from sklearn.utils import resample
-
-        interval_boundary = max(int((bootstraps * (1 - interval)) / 2) , 1)
-        if interval_boundary == 1:
-            Exception("Interval too broad for number of bootstraps")
-
-        bootstrapped_mse = np.zeros((bootstraps,self.matrix.shape[1]))
-
-        squared_residuals = np.power(self.residuals(mode=mode),2)
-
-        for i in range(bootstraps):
-            resampled = resample(squared_residuals)
-            bootstrapped_mse[i] = np.mean(resampled,axis=0)
-
-        intervals = []
-
-        for f_bs in bootstrapped_mse.T:
-            sorted_f_bs = sorted(f_bs)
-            lower = sorted_f_bs[interval_boundary]
-            upper = sorted_f_bs[-interval_boundary]
-            intervals.append((lower,upper))
-
-        return np.array(intervals)
-
     def jackknife_feature_mse_variance(self,mode='additive_mean'):
 
         squared_residuals = np.power(self.residuals(mode=mode),2)
@@ -3267,82 +3205,79 @@ class Prediction:
 
         return jackknife_variance
 
+    def feature_remaining_error(self,truth=None,mode='additive_mean'):
 
-    def compare_predictions(self, other, n=10, interval=.95, bootstraps=1000, no_plot=True):
+        null_square_residuals = np.power(self.null_residuals(truth=truth), 2)
+        null_residual_sum = np.sum(null_square_residuals)
 
-        own_mse = self.feature_mse()
-        other_mse = other.feature_mse(mode=self.mode)
-        delta_mse = other_mse - own_mse
+        forest_square_residuals = np.power(self.residuals(truth=truth), 2)
+        predicted_residual_sum = np.sum(forest_square_residuals)
 
-        # mse_intervals = self.bootstrap_feature_mse(interval=interval,bootstraps=bootstraps)
-        # matched = np.logical_and(mse_intervals[:,0] < other_mse, mse_intervals[:,1] > other_mse)
-        # mismatched = ~matched
+        remaining = predicted_residual_sum / null_residual_sum
 
+        return remaining
+
+    def feature_coefficient_of_determination(self,truth=None,mode='additive_mean'):
+        remaining_error = self.feature_remaining_error(truth=truth,mode=mode)
+        return 1 - remaining_error
+
+    def compare_feature_residuals(self,other, mode='kendall_tau',no_plot=True):
+        from scipy.stats import kendalltau
+        from scipy.stats import ks_2samp
         from scipy.stats import t
-        jackknife_std = np.sqrt(self.jackknife_feature_mse_variance())
-        jackknife_z = delta_mse / jackknife_std
-        log_prob = t.logpdf(jackknife_z,len(self.forest.samples))
-        mismatched = log_prob < np.log((1-interval))
 
-        delta_sort = np.argsort(np.abs(delta_mse))
+        self_residuals = self.residuals()
+        other_residuals = other.residuals()
 
-        sorted_filtered = self.forest.output_features[delta_sort][mismatched[delta_sort]]
-        sorted_filtered_delta = delta_mse[delta_sort][mismatched[delta_sort]]
+        if mode == 'kendall_tau':
 
-        print((sorted_filtered[:n], sorted_filtered_delta[:n]))
-        print((sorted_filtered[-n:], sorted_filtered_delta[-n:]))
+            print("Computing Kendall Tau")
+            self_sorted = np.argsort(self_residuals,axis=1)
+            other_sorted = np.argsort(other_residuals,axis=1)
+            print("Ranked")
+
+            results = [kendalltau(self_sorted[i],other_sorted[i]) for i in range(self_sorted.shape[1])]
+
+        elif mode == 'kolmogorov_smirnov':
+
+            results = []
+
+            results = [ks_2samp(self_residuals[:,i],other_residuals[:,i]) for i in range(self_residuals.shape[1])]
+
+        elif mode == 'mse_delta':
+
+            self_mse = self.feature_mse()
+            other_mse = other.feature_mse()
+
+            delta_mse = self_mse - other_mse
+
+            jackknife_std = np.sqrt(self.jackknife_feature_mse_variance())
+            jackknife_z = delta_mse / jackknife_std
+
+            prob = t.pdf(jackknife_z,len(self.forest.samples))
+
+            results = list,zip(jackknife_z,prob)
+
+        else:
+            raise Exception(f"Did not recognize mode:{mode}")
 
         if not no_plot:
             plt.figure()
-            plt.hist(delta_mse,log=True)
+            plt.title("Distribution of Test Statistics")
+            plt.hist([test for test,p in results],log=True)
+            plt.xtitle("Test Statistic")
+            plt.ytitle("Frequency")
             plt.show()
 
-        return delta_mse,mismatched
+            plt.figure()
+            plt.title("Distribution of P Values")
+            plt.hist([p for test,p in results],log=True)
+            plt.xtitle("P Value")
+            plt.ytitle("Frequency")
+            plt.show()
 
-    def compare_cod_to_shuffle(self,shuffle,fdr=.05):
+        return results
 
-        own_cod = self.feature_coefficient_of_determination()
-        null_cod = shuffle.feature_coefficient_of_determination()
-
-        own_cod_sort = np.argsort(own_cod)
-        null_cod_sort = np.argsort(null_cod)
-
-        own_sorted = own_cod[own_cod_sort]
-
-        for i in range(1,len(own_cod)):
-            threshold = own_sorted[-i]
-            chance = np.sum(null_cod_sort < threshold)
-            true_fraction = i/(i+chance)
-            if true_fraction > (1-fdr):
-                break
-
-        significant_mask = own_cod < threshold
-
-        return significant_mask
-
-
-    # def compare_predictions(self, other, n=10, no_plot=True):
-    #
-    #     own_features, _ = self.prediction_report(n=n, no_plot=no_plot)
-    #     other_features, _ = other.prediction_report(n=n, no_plot=no_plot)
-    #
-    #     print("###############################################################")
-    #     print("###############################################################")
-    #     print("###############################################################")
-    #
-    #     feature_delta = other_features - own_features
-    #
-    #     delta_sort = np.argsort(feature_delta)
-    #
-    #     print((self.forest.output_features[delta_sort[:n]],feature_delta[delta_sort[:n]]))
-    #     print((self.forest.output_features[delta_sort[-n:]],feature_delta[delta_sort[-n:]]))
-    #
-    #     if not no_plot:
-    #         plt.figure()
-    #         plt.hist(feature_delta,log=True)
-    #         plt.show()
-    #
-    #     return feature_delta
 
 
 class TruthDictionary:
@@ -3855,41 +3790,11 @@ class NodeCluster:
 
         return scores
 
-    def mean_absolute_feature_gains(self):
-        mean_gains = np.zeros(len(self.forest.features))
-        node_gains = [node.absolute_gain_dictionary() for node in self.nodes]
-        stacked_gains = stack_dictionaries(node_gains)
-        print(list(stacked_gains.items())[:10])
-        for i, feature in enumerate(self.forest.features):
-            mean_gains[i] = np.mean(stacked_gains[feature])
-        return mean_gains
+##############################################################################
+# Html methods
+##############################################################################
 
-    def ranked_feature_error_gain(self):
-        nodes = self.nodes
-        total_error_gain_matrix = self.forest.total_absolute_error_matrix(nodes)[
-            0].T
-        average_gains = np.mean(total_error_gain_matrix, axis=0)
-        gain_rankings = np.argsort(average_gains)
-        sorted_gains = average_gains[gain_rankings]
-        sorted_features = self.forest.features[gain_rankings]
-        return sorted_features, sorted_gains
-
-    def ranked_mean_gains(self):
-        mean_gains = self.mean_absolute_feature_gains()
-        gain_order = np.argsort(mean_gains)
-        sorted_features = np.array(self.forest.features)[gain_order]
-        sorted_gains = mean_gains[gain_order]
-
-        plt.figure(figsize=(10, 2))
-        plt.title("Features Gaining Information")
-        plt.scatter(np.arange(50), sorted_gains[-50:])
-        plt.xlim(0, 50)
-        plt.xlabel("Gene Symbol")
-        plt.ylabel("Gain")
-        plt.xticks(np.arange(50), sorted_features[-50:], rotation='vertical')
-        plt.show()
-
-        return sorted_features, sorted_gains
+# Methods here are used to generate HTML summaries of the cluster
 
     def html_directory(self):
         location = self.forest.html_directory() + str(self.id) + "/"
@@ -4202,44 +4107,6 @@ class NodeCluster:
         plt.colorbar()
         plt.show()
 
-    def cluster_children(self, nodes=None, mode='gain', metric='cosine', pca=False, distance='cosine', **kwargs):
-
-        print("Interpreting cluster children")
-        print(f"Cluster:{self.id}")
-
-        children = []
-        for node in self.nodes:
-            children.extend(node.children)
-
-        print(f"Child nodes:{len(children)}")
-
-        child_representation = self.forest.node_representation(
-            children, mode=mode, metric=metric, pca=pca)
-
-        child_labels = len(self.forest.split_clusters) + Forest.sdg_cluster_representation(
-            child_representation, distance=distance, **kwargs)
-
-        self.forest.plot_representation(
-            child_representation, labels=child_labels, mode=mode, metric=metric, pca=pca)
-
-        for child, label in zip(children, child_labels):
-            child.set_split_cluster(label)
-
-        cluster_set = set(child_labels)
-
-        print(f"New clusters: {cluster_set}")
-
-        clusters = []
-
-        for cluster in cluster_set:
-            split_indices = np.arange(len(children))[child_labels == cluster]
-            clusters.append(NodeCluster(
-                self.forest, [children[i] for i in split_indices], cluster))
-
-        self.forest.split_clusters.extend(clusters)
-
-        return clusters
-
     def probability_enrichment(self):
         enrichment = self.forest.probability_enrichment()
         return enrichment.T[self.id]
@@ -4247,6 +4114,50 @@ class NodeCluster:
     def odds_ratio(self):
         odds_ratios = self.forest.split_cluster_odds_ratios()
         return odds_ratios.T[self.id]
+
+
+##############################################################################
+# EXPERIMENTAL
+##############################################################################
+
+    #
+    # def cluster_children(self, nodes=None, mode='gain', metric='cosine', pca=False, distance='cosine', **kwargs):
+    #
+    #     print("Interpreting cluster children")
+    #     print(f"Cluster:{self.id}")
+    #
+    #     children = []
+    #     for node in self.nodes:
+    #         children.extend(node.children)
+    #
+    #     print(f"Child nodes:{len(children)}")
+    #
+    #     child_representation = self.forest.node_representation(
+    #         children, mode=mode, metric=metric, pca=pca)
+    #
+    #     child_labels = len(self.forest.split_clusters) + Forest.sdg_cluster_representation(
+    #         child_representation, distance=distance, **kwargs)
+    #
+    #     self.forest.plot_representation(
+    #         child_representation, labels=child_labels, mode=mode, metric=metric, pca=pca)
+    #
+    #     for child, label in zip(children, child_labels):
+    #         child.set_split_cluster(label)
+    #
+    #     cluster_set = set(child_labels)
+    #
+    #     print(f"New clusters: {cluster_set}")
+    #
+    #     clusters = []
+    #
+    #     for cluster in cluster_set:
+    #         split_indices = np.arange(len(children))[child_labels == cluster]
+    #         clusters.append(NodeCluster(
+    #             self.forest, [children[i] for i in split_indices], cluster))
+    #
+    #     self.forest.split_clusters.extend(clusters)
+    #
+    #     return clusters
 
 ################################
 ################################
