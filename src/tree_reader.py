@@ -124,7 +124,7 @@ class Node:
             return self.local_samples
 
     def pop(self):
-        if hasattr(self,'pop_cache'):
+        if hasattr(self, 'pop_cache'):
             return self.pop_cache
         else:
             pop = len(self.samples())
@@ -247,10 +247,26 @@ class Node:
             residuals = self.median_residuals()
         else:
             raise Exception(f"Mode not recognized:{mode}")
-        dispersions = np.power(residuals,2)
+        dispersions = np.power(residuals, 2)
         if self.cache:
             self.dispersion_cache = dispersions
         return dispersions
+
+    def mean_error_ratio(self):
+
+        # Can't call to parent residuals because parent will have other samples not
+        # present in this node
+
+        counts = self.node_counts()
+        self_predictions = self.means()
+        if self.parent is not None:
+            parent_predictions = self.parent.means()
+        else:
+            parent_predictions = self.means()
+        self_error = np.sum(np.power(counts - self_predictions,2),axis=0) + 1
+        parent_error = np.sum(np.power(counts - self_predictions,2),axis=0) + 1
+
+        return self_error / parent_error
 
     def absolute_gains(self):
 
@@ -658,7 +674,8 @@ class Node:
             if hasattr(self, 'sample_cluster_cache'):
                 return self.sample_cluster_cache
 
-        sample_clusters = self.forest.sample_cluster_encoding.T[self.samples()].T
+        sample_clusters = self.forest.sample_cluster_encoding.T[self.samples(
+        )].T
         sample_cluster_means = np.mean(sample_clusters, axis=1)
 
         if self.cache:
@@ -1049,6 +1066,7 @@ class Forest:
         if mode == 'gain':
             print("Gain reduction")
             encoding = self.local_gain_matrix(nodes).T
+        elif mode == 'error_ratio'
         elif mode == 'additive':
             print("Additive reduction")
             encoding = self.additive_matrix(nodes).T
@@ -1067,12 +1085,7 @@ class Forest:
         elif mode == 'mean' or mode == 'means':
             print("Mean reduction")
             encoding = self.mean_matrix(nodes)
-        elif mode == 'weights':
-            print("Weight reduction")
-            encoding = self.weight_matrix(nodes)
-        elif mode == 'weighted_predictions':
-            print("Weighted prediction reduction")
-            encoding = self.weighted_prediction_matrix(nodes)
+
         else:
             raise Exception(f"Mode not recognized:{mode}")
 
@@ -1080,25 +1093,25 @@ class Forest:
             # print(f"debug:{encoding.shape}")
             from sklearn.decomposition import IncrementalPCA
             model = IncrementalPCA(n_components=pca)
-            chunks = int(np.floor(encoding.shape[0]/10000)) + 1
-            last_chunk = encoding.shape[0] - ((chunks-1) * 10000)
-            for i in range(1,chunks):
-                print(f"Learning chunk {i}\r",end='')
-                model.partial_fit(encoding[(i-1)*10000:i*10000])
+            chunks = int(np.floor(encoding.shape[0] / 10000)) + 1
+            last_chunk = encoding.shape[0] - ((chunks - 1) * 10000)
+            for i in range(1, chunks):
+                print(f"Learning chunk {i}\r", end='')
+                model.partial_fit(encoding[(i - 1) * 10000:i * 10000])
             model.partial_fit(encoding[-last_chunk:])
             # transformed = model.transform(encoding)
             # print(f"Chunks:{chunks}")
-            transformed = np.zeros((encoding.shape[0],pca))
-            for i in range(1,chunks):
-                print(f"Transforming chunk {i}\r",end='')
+            transformed = np.zeros((encoding.shape[0], pca))
+            for i in range(1, chunks):
+                print(f"Transforming chunk {i}\r", end='')
                 # print(f"coordinates:{((i-1)*10000,i*10000)}")
-                transformed[(i-1)*10000:i*10000] = model.transform(encoding[(i-1)*10000:i*10000])
+                transformed[(
+                    i - 1) * 10000:i * 10000] = model.transform(encoding[(i - 1) * 10000:i * 10000])
             # print(f"coordinates:{-last_chunk}")
             transformed[-last_chunk:] = model.transform(encoding[-last_chunk:])
             print("")
             encoding = transformed
             # encoding = PCA(n_components=pca).fit_transform(encoding)
-
 
             # encoding = PCA(n_components=pca).fit_transform(encoding)
 
@@ -1119,11 +1132,11 @@ class Forest:
     def node_sister_encoding(self, nodes):
         encoding = np.zeros((len(self.samples), len(nodes)), dtype=int)
         for i, node in enumerate(nodes):
-            encoding[:,i][node.sample_mask()] = 1
+            encoding[:, i][node.sample_mask()] = 1
             # for sample in node.samples():
             #     encoding[sample, i] = 1
             if node.sister() is not None:
-                encoding[:,i][node.sister().sample_mask()] = 1
+                encoding[:, i][node.sister().sample_mask()] = 1
                 # for sample in node.sister().samples():
                 #     encoding[sample, i] = -1
         return encoding
@@ -1154,7 +1167,6 @@ class Forest:
 ########################################################################
 ########################################################################
 
-
     def absolute_gain_matrix(self, nodes):
         gains = np.zeros((len(self.output_features), len(nodes)))
         for i, node in enumerate(nodes):
@@ -1166,6 +1178,12 @@ class Forest:
         for i, node in enumerate(nodes):
             gains[:, i] = node.local_gains()
         return gains
+
+    def error_ratio_matrix(self,nodes):
+        ratios = np.zeros(len(self.output_featues,len(nodes)))
+        for i,node in enumerate(nodes):
+            ratios[:,i] = node.mean_error_ratio()
+        return ratios
 
     def additive_matrix(self, nodes):
         gains = np.zeros((len(self.output_features), len(nodes)))
@@ -1197,9 +1215,10 @@ class Forest:
             weights[i] = node.weights
         return weights
 
-    def weighted_prediction_matrix(self,nodes):
-        weighted_predictions = np.zeros((len(nodes),len(self.output_features)))
-        for i,node in enumerate(nodes):
+    def weighted_prediction_matrix(self, nodes):
+        weighted_predictions = np.zeros(
+            (len(nodes), len(self.output_features)))
+        for i, node in enumerate(nodes):
             weighted_predictions[i] = node.weighted_prediction_cache
         return weighted_predictions
 
@@ -1415,7 +1434,7 @@ class Forest:
     def nodes_weighted_predict_feature(self, nodes, feature):
         predictions = np.zeros(len(nodes))
         feature_index = self.truth_dictionary.feature_dictionary[feature]
-        for i,node in enumerate(nodes):
+        for i, node in enumerate(nodes):
             predictions[i] = node.weighted_prediction_cache[feature_index]
 
         single = np.sum(predictions) * (len(self.nodes()) / len(nodes))
@@ -1441,7 +1460,6 @@ class Forest:
         for node in nodes:
             weights.append(node.weights[fi])
         return predictions, weights
-
 
     def predict_sample(self, sample):
 
@@ -1478,8 +1496,8 @@ class Forest:
 
     def nodes_mean_predict_vector(self, nodes):
 
-        predictions = self.node_representation(nodes,mode='mean')
-        single_prediction = np.sum(predictions,axis=0) / len(nodes)
+        predictions = self.node_representation(nodes, mode='mean')
+        single_prediction = np.sum(predictions, axis=0) / len(nodes)
 
         return single_prediction
 
@@ -1495,11 +1513,11 @@ class Forest:
     def predict_weighted(self, matrix, depth=8):
         encoding = self.predict_node_sample_encoding(
             matrix, depth=depth, leaves=False).T
-        weighted_predictions = self.node_representation(self.nodes(),mode='weighted_predictions').T
+        weighted_predictions = self.node_representation(
+            self.nodes(), mode='weighted_predictions').T
         prediction = np.dot(encoding.astype(dtype=int), weighted_predictions)
 
         return prediction
-
 
     def predict_matrix(self, matrix, features=None, weighted=True):
 
@@ -1564,6 +1582,7 @@ class Forest:
 ########################################################################
 ########################################################################
 
+
     def split_labels(self, depth=3):
         nodes = self.nodes(depth=depth)
         return np.array([n.split_cluster for n in nodes])
@@ -1606,7 +1625,8 @@ class Forest:
                 self.set_sample_labels(hacked_louvain(
                     fast_knn(counts, **kwargs), resolution=resolution))
             else:
-                self.set_sample_labels(hacked_louvain(fast_knn(counts,**kwargs), resolution=resolution))
+                self.set_sample_labels(hacked_louvain(
+                    fast_knn(counts, **kwargs), resolution=resolution))
 
         return self.sample_labels
 
@@ -2042,7 +2062,6 @@ class Forest:
     #
     #     return cell_sort,leaf_sort,self.ouput_counts
 
-
     def plot_sample_clusters(self, colorize=True, label=True):
         # if not hasattr(self,'leaf_clusters'):
         #     print("Warning, leaf clusters not detected")
@@ -2204,7 +2223,7 @@ class Forest:
     def tsne(self, no_plot=False, pca=100, override=False, **kwargs):
         if not hasattr(self, 'tsne_coordinates') or override:
             if pca:
-                pca = np.min([pca, self.output.shape[0],self.output.shape[1]])
+                pca = np.min([pca, self.output.shape[0], self.output.shape[1]])
                 self.tsne_coordinates = TSNE().fit_transform(
                     PCA(n_components=pca).fit_transform(self.output))
             else:
@@ -2359,6 +2378,7 @@ class Forest:
 
 ########################################################################
 ########################################################################
+
 
     def split_cluster_transition_matrix(self, depth=3):
 
@@ -2614,6 +2634,7 @@ class Forest:
 # HTML Visualization methods
 #########################################################
 
+
     def html_directory(self):
 
         location = Path(__file__).parent.parent.absolute()
@@ -2709,7 +2730,8 @@ class Forest:
             # the javascript without reading local files (siiigh)
 
             coordinate_json_string = jsn_dumps(coordinates)
-            name_json_string = jsn_dumps([c.name() for c in self.split_clusters])
+            name_json_string = jsn_dumps(
+                [c.name() for c in self.split_clusters])
             coordinate_html = f'<script> let treeCoordinates = {coordinate_json_string};</script>'
             name_html = f'<script> let clusterNames = {name_json_string};</script>'
 
@@ -2912,7 +2934,6 @@ class Prediction:
             self.nae = self.forest.mean_additive_matrix(self.forest.nodes())
         return self.nae
 
-
     def additive_prediction(self, depth=8):
         encoding = self.node_sample_encoding().T
         feature_predictions = self.node_additive_encoding().T
@@ -2959,7 +2980,7 @@ class Prediction:
 
         return residuals
 
-    def null_residuals(self,truth=None):
+    def null_residuals(self, truth=None):
 
         if truth is None:
             truth = self.matrix
@@ -2967,7 +2988,6 @@ class Prediction:
         centered_truth = truth - np.mean(truth, axis=0)
 
         return centered_truth
-
 
     def node_residuals(self, node, truth=None):
 
@@ -2980,8 +3000,7 @@ class Prediction:
 
         return residuals
 
-
-    def node_feature_remaining_error(self,nodes):
+    def node_feature_remaining_error(self, nodes):
 
         per_node_fraction = []
 
@@ -2990,16 +3009,16 @@ class Prediction:
             if node.parent is not None:
 
                 node_residuals = self.node_residuals(node)
-                remaining_error = np.sum(np.power(node_residuals,2),axis=0)
+                remaining_error = np.sum(np.power(node_residuals, 2), axis=0)
 
                 sister_residuals = self.node_residuals(node.sister())
-                remaining_error += np.sum(np.power(sister_residuals,2),axis=0)
+                remaining_error += np.sum(np.power(sister_residuals, 2), axis=0)
 
                 parent_residuals = self.node_residuals(node.parent)
-                original_error += np.sum(np.power(parent_residuals,2),axis=0)
+                original_error += np.sum(np.power(parent_residuals, 2), axis=0)
 
                 # Avoid nans:
-                #(there's gotta be a better way) *billy mays theme starts*
+                # (there's gotta be a better way) *billy mays theme starts*
 
                 remaining_error += 1
                 original_error += 1
@@ -3009,7 +3028,7 @@ class Prediction:
             else:
                 per_node_fraction.append(1)
 
-        return np.mean(np.array(per_node_fraction),axis=0)
+        return np.mean(np.array(per_node_fraction), axis=0)
 
     def sample_clusters(self):
 
@@ -3038,7 +3057,7 @@ class Prediction:
                 predicted_encoding)
         return predicted_factors
 
-    def compare_factors(self,other,bins=20):
+    def compare_factors(self, other, bins=20):
 
         from scipy.stats import entropy
 
@@ -3048,14 +3067,16 @@ class Prediction:
         symmetric_entropy = []
         bin_interval = 2. / bins
 
-        for i,(own_f,other_f) in enumerate(zip(own_factors.T,other_factors.T)):
-            own_hist = np.histogram(own_f,bins=np.arange(-1,1,bin_interval))[0] + 1
-            other_hist = np.histogram(other_f,bins=np.arange(-1,1,.1))[0] + 1
+        for i, (own_f, other_f) in enumerate(zip(own_factors.T, other_factors.T)):
+            own_hist = np.histogram(
+                own_f, bins=np.arange(-1, 1, bin_interval))[0] + 1
+            other_hist = np.histogram(
+                other_f, bins=np.arange(-1, 1, .1))[0] + 1
             own_prob = own_hist / np.sum(own_hist)
             other_prob = other_hist / np.sum(other_hist)
         #     print("##############################")
-            forward_entropy = entropy(own_prob,qk=other_prob)
-            reverse_entropy = entropy(other_prob,qk=own_prob)
+            forward_entropy = entropy(own_prob, qk=other_prob)
+            reverse_entropy = entropy(other_prob, qk=own_prob)
             average_entropy = (forward_entropy + reverse_entropy) / 2
             symmetric_entropy.append(average_entropy)
             print(f"{i} Entropy: {average_entropy}")
@@ -3111,24 +3132,25 @@ class Prediction:
 
         return features_explained, samples_explained
 
-    def feature_mse(self,truth=None, mode='additive_mean'):
+    def feature_mse(self, truth=None, mode='additive_mean'):
 
-        residuals = self.residuals(truth=truth,mode=mode)
-        mse = np.mean(np.power(residuals,2),axis=0)
+        residuals = self.residuals(truth=truth, mode=mode)
+        mse = np.mean(np.power(residuals, 2), axis=0)
 
         return mse
 
-    def jackknife_feature_mse_variance(self,mode='additive_mean'):
+    def jackknife_feature_mse_variance(self, mode='additive_mean'):
 
-        squared_residuals = np.power(self.residuals(mode=mode),2)
-        residual_sum = np.sum(squared_residuals,axis=0)
+        squared_residuals = np.power(self.residuals(mode=mode), 2)
+        residual_sum = np.sum(squared_residuals, axis=0)
         excluded_sum = residual_sum - squared_residuals
         excluded_mse = excluded_sum / (squared_residuals.shape[0] - 1)
-        jackknife_variance = np.var(excluded_mse,axis=0) * (squared_residuals.shape[0] - 1)
+        jackknife_variance = np.var(
+            excluded_mse, axis=0) * (squared_residuals.shape[0] - 1)
 
         return jackknife_variance
 
-    def feature_remaining_error(self,truth=None,mode='additive_mean'):
+    def feature_remaining_error(self, truth=None, mode='additive_mean'):
 
         null_square_residuals = np.power(self.null_residuals(truth=truth), 2)
         null_residual_sum = np.sum(null_square_residuals)
@@ -3140,11 +3162,11 @@ class Prediction:
 
         return remaining
 
-    def feature_coefficient_of_determination(self,truth=None,mode='kolmogorov_smirnov'):
-        remaining_error = self.feature_remaining_error(truth=truth,mode=mode)
+    def feature_coefficient_of_determination(self, truth=None, mode='kolmogorov_smirnov'):
+        remaining_error = self.feature_remaining_error(truth=truth, mode=mode)
         return 1 - remaining_error
 
-    def compare_feature_residuals(self,other, mode='rank_sum',no_plot=True):
+    def compare_feature_residuals(self, other, mode='rank_sum', no_plot=True):
         from scipy.stats import ranksums
         from scipy.stats import ks_2samp
         from scipy.stats import t
@@ -3153,10 +3175,12 @@ class Prediction:
         other_residuals = other.residuals()
 
         if mode == 'rank_sum':
-            results = [ranksums(self_residuals[:,i],other_residuals[:,i]) for i in range(self_residuals.shape[1])]
+            results = [ranksums(self_residuals[:, i], other_residuals[:, i])
+                       for i in range(self_residuals.shape[1])]
 
         elif mode == 'kolmogorov_smirnov':
-            results = [ks_2samp(self_residuals[:,i],other_residuals[:,i]) for i in range(self_residuals.shape[1])]
+            results = [ks_2samp(self_residuals[:, i], other_residuals[:, i])
+                       for i in range(self_residuals.shape[1])]
 
         elif mode == 'mse_delta':
 
@@ -3168,9 +3192,9 @@ class Prediction:
             jackknife_std = np.sqrt(self.jackknife_feature_mse_variance())
             jackknife_z = delta_mse / jackknife_std
 
-            prob = t.pdf(jackknife_z,len(self.forest.samples))
+            prob = t.pdf(jackknife_z, len(self.forest.samples))
 
-            results = list(zip(jackknife_z,prob))
+            results = list(zip(jackknife_z, prob))
 
         else:
             raise Exception(f"Did not recognize mode:{mode}")
@@ -3178,20 +3202,19 @@ class Prediction:
         if not no_plot:
             plt.figure()
             plt.title("Distribution of Test Statistics")
-            plt.hist([test for test,p in results],log=True,bins=50)
+            plt.hist([test for test, p in results], log=True, bins=50)
             plt.xlabel("Test Statistic")
             plt.ylabel("Frequency")
             plt.show()
 
             plt.figure()
             plt.title("Distribution of P Values")
-            plt.hist([p for test,p in results],log=True,bins=50)
+            plt.hist([p for test, p in results], log=True, bins=50)
             plt.xlabel("P Value")
             plt.ylabel("Frequency")
             plt.show()
 
         return results
-
 
 
 class TruthDictionary:
@@ -3223,12 +3246,12 @@ class SampleCluster:
         self.forest = forest
 
     def name(self):
-        if hasattr(self,'stored_name'):
+        if hasattr(self, 'stored_name'):
             return self.stored_name
         else:
             return str(self.id)
 
-    def set_name(self,name):
+    def set_name(self, name):
         self.stored_name = name
 
     def mask(self):
@@ -3396,7 +3419,6 @@ class NodeCluster:
 # Consensus tree methods. Kinda weird/hacky. Need to rethink
 ################################################################################
 
-
     def parent_cluster(self):
         try:
             return self.forest.split_clusters[self.forest.reverse_likely_tree[self.id][0]]
@@ -3439,7 +3461,6 @@ class NodeCluster:
 ##############################################################################
 # Feature change methods (eg changes relative to related nodes)
 ##############################################################################
-
 
     def changed_absolute_root(self):
         roots = self.forest.nodes(root=True, depth=0)
@@ -3575,18 +3596,31 @@ class NodeCluster:
         # We want to figure out how much of the error in a given feature is explained by the nodes in this cluster
         # We want the overall ratio of error in the parents vs the error in the nodes of this cluster
 
-
         parent_total_error = np.ones(len(self.forest.output_features))
-        sister_total_error = np.ones(len(self.forest.output_features))
         self_total_error = np.ones(len(self.forest.output_features))
 
         for node in self.nodes:
             if node.parent is not None:
-                parent_total_error = np.sum(np.power(node.parent.residuals(),2),axis=0)
-                sister_total_error = np.sum(np.power(node.sister().residuals(),2),axis=0)
-                self_total_error += np.sum(np.power(node.residuals(),2),axis=0)
+                node_counts = node.node_counts()
+                node_residuals = node_counts - node.means()
+                parent_residuals = node_counts - node.parent.means()
+                self_total_error += np.sum(
+                    np.power(node_residuals, 2), axis=0)
+                parent_total_error += np.sum(
+                    np.power(parent_residuals, 2), axis=0)
 
+        print(self_total_error)
+        print(parent_total_error)
 
+        error_ratio = self_total_error / \
+            parent_total_error
+
+        ratio_sort = np.argsort(error_ratio)
+
+        sorted_features = self.forest.output_features[ratio_sort]
+        sorted_ratios = error_ratio[ratio_sort]
+
+        return sorted_features, sorted_ratios
 
     def weighted_covariance(self):
         scores = self.sister_scores()
@@ -3647,7 +3681,7 @@ class NodeCluster:
         normalization = np.sqrt(np.abs(np.outer(diagonal, diagonal)))
         correlations = weighted_covariance / normalization
         correlations[normalization == 0] = 0
-        correlations[np.identity(correlations.shape[0],dtype=bool)] = 1.
+        correlations[np.identity(correlations.shape[0], dtype=bool)] = 1.
         return correlations
 
     def most_local_correlations(self, n=10):
@@ -3663,7 +3697,7 @@ class NodeCluster:
             np.arange(delta.shape[0]), ((delta.shape[0]), 1))
 
         ranked = list(zip(tiled_indices.flatten()[
-                     ranks], tiled_indices.T.flatten()[ranks]))
+            ranks], tiled_indices.T.flatten()[ranks]))
 
         return ranked[-n:]
 
@@ -3743,10 +3777,11 @@ class NodeCluster:
 
         attributes = {}
 
-        changed_vs_parent,fold_vs_parent = self.changed_log_fold()
-        changed_vs_all,fold_vs_all = self.changed_log_root()
-        changed_vs_sister,fold_vs_sister = self.changed_log_sister()
+        error_features, error_ratio = self.error_ratio()
 
+        changed_vs_parent, fold_vs_parent = self.changed_log_fold()
+        changed_vs_all, fold_vs_all = self.changed_log_root()
+        changed_vs_sister, fold_vs_sister = self.changed_log_sister()
 
         changed_vs_parent, fold_vs_parent = self.changed_absolute()
         changed_vs_all, fold_vs_all = self.changed_absolute_root()
@@ -3759,6 +3794,10 @@ class NodeCluster:
 
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
+        attributes['errorUp'] = generate_feature_value_html(
+            reversed(error_features[:n]), reversed(error_ratio[:n]), cmap='bwr')
+        attributes['errorDown'] = generate_feature_value_html(
+            reversed(error_features[-n:]), reversed(error_ratio[-n:]), cmap='bwr')
         attributes['parentUpregulatedHtml'] = generate_feature_value_html(
             reversed(changed_vs_parent[-n:]), reversed(fold_vs_parent[-n:]), cmap='bwr')
         attributes['parentDownregulatedHtml'] = generate_feature_value_html(
