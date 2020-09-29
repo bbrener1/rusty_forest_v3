@@ -214,7 +214,23 @@ class Node:
             values = self.forest.output[self.sample_mask()].T[fi]
             return np.mean(values)
 
-    def dispersions(self):
+    def mean_residuals(self):
+
+        counts = self.node_counts()
+        means = self.means()
+        residuals = counts - means
+
+        return residuals
+
+    def median_residuals(self):
+
+        counts = self.node_counts()
+        medians = self.medians()
+        residuals = counts - medians
+
+        return residuals
+
+    def dispersions(self, mode='mean'):
 
         # Dispersions of this node. Hardcoded for SSME at the moment.
         # RECOMPUTED FROM SCRATCH. This SHOULD be mathematically equivalent to what
@@ -224,8 +240,14 @@ class Node:
         if self.cache:
             if hasattr(self, 'dispersion_cache'):
                 return self.dispersion_cache
-        matrix = self.forest.output[self.samples()]
-        dispersions = ssme(matrix, axis=0)
+
+        if mode == 'mean':
+            residuals = self.mean_residuals()
+        elif mode == 'median':
+            residuals = self.median_residuals()
+        else:
+            raise Exception(f"Mode not recognized:{mode}")
+        dispersions = np.power(residuals,2)
         if self.cache:
             self.dispersion_cache = dispersions
         return dispersions
@@ -1419,49 +1441,6 @@ class Forest:
         for node in nodes:
             weights.append(node.weights[fi])
         return predictions, weights
-    #
-    # def weigh_leaves(self, positive=True, feature_slice=None):
-    #
-    #     if feature_slice is None:
-    #         features = self.output_features
-    #     else:
-    #         features = self.output_features[feature_slice]
-    #
-    #     median_representation = self.node_representation(
-    #         self.leaves(), mode='median')
-    #
-    #     for i, feature in enumerate(features):
-    #         print(f"{i}. Calculating weights for {feature} \r")
-    #         self.weigh_feature_median(
-    #             feature, positive=positive, representation=median_representation)
-    #     print("\n", end="")
-    #
-    #     plt.figure()
-    #     plt.hist(self.weight_matrix(self.leaves()).flatten(), bins=50, log=True)
-    #     plt.show()
-
-    #
-    #
-    # def weigh_nodes(self, positive=True, alpha=5., feature_slice=None):
-    #     from sklearn.linear_model import LinearRegression
-    #
-    #     if feature_slice is None:
-    #         features = self.output_features
-    #     else:
-    #         features = self.output_features[feature_slice]
-    #
-    #     additive_representation = self.node_representation(
-    #         self.nodes(), mode='additive_mean')
-    #
-    #     sample_encoding = self.node_representation(self.nodes(),mode="sample")
-    #
-    #     truth = self.output
-    #
-    #     # weighted_prediction = LinearRegression(fit_intercept=False).fit(sample_encoding.T,truth).coef_.T
-    #     weighted_prediction = Ridge(alpha=alpha, fit_intercept=False).fit(sample_encoding.T, truth).coef_.T
-    #
-    #     for i,wp in enumerate(weighted_prediction):
-    #         self.nodes()[i].weighted_prediction_cache = wp
 
 
     def predict_sample(self, sample):
@@ -1496,29 +1475,6 @@ class Forest:
         leaves = self.predict_sample_leaves(sample)
         leaf_clusters = [l.leaf_cluster for l in leaves]
         return np.mode(leaf_clusters)[0][0]
-    #
-    # def weighted_predict_sample(self, sample):
-    #
-    #     leaves = self.predict_sample_leaves(sample)
-    #     return self.weighted_node_vector_prediction(leaves)
-    #
-    # def weighted_node_vector_prediction(self, nodes):
-    #
-    #
-    #     predictions = self.node_representation(nodes,mode='weighted_predictions')
-    #     scaled =
-    #
-    #     # single_prediction = np.sum(predictions[mask],axis=0)
-    #     single_prediction = in_sum *
-    #     #
-    #     print(in_sum)
-    #     print(out_sum)
-    #     # single_prediction = np.sum(predictions,axis=0) * (expected_nodes / len(nodes))
-    #     #
-    #     print(single_prediction)
-    #
-    #     raise Exception("stop")
-    #     return single_prediction
 
     def nodes_mean_predict_vector(self, nodes):
 
@@ -1956,39 +1912,6 @@ class Forest:
 
         self.split_clusters = clusters
 
-    # def ihmm_braid(self,override=False,mode='gain',metric='jaccard',distance='cosine',pca=False,depth=3,*args,**kwargs):
-    #
-    #     from tree_braider import IHMM
-    #
-    #     nodes = np.array(self.nodes(root=True,depth=depth))
-    #
-    #     stem_mask = np.array([n.level != 0 for n in nodes])
-    #     root_mask = np.logical_not(stem_mask)
-    #
-    #     labels = np.zeros(len(nodes)).astype(dtype=int)
-    #
-    #     representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
-    #
-    #     labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,*args,**kwargs))
-    #
-    #     for node,label in zip(nodes,labels):
-    #         node.set_split_cluster(label)
-    #         # node.split_cluster = label
-    #
-    #
-    #     cluster_set = set(labels)
-    #     clusters = []
-    #     for cluster in cluster_set:
-    #         split_index = np.arange(len(labels))[labels == cluster]
-    #         clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
-    #
-    #     # split_order = np.argsort(labels)
-    #     # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
-    #
-    #     self.split_clusters = clusters
-    #
-    #     return labels
-    #
     def recursive_interpretation(self, cluster, mode='additive', **kwargs):
 
         print(f"Subclustering {cluster.name()}")
@@ -3217,31 +3140,22 @@ class Prediction:
 
         return remaining
 
-    def feature_coefficient_of_determination(self,truth=None,mode='additive_mean'):
+    def feature_coefficient_of_determination(self,truth=None,mode='kolmogorov_smirnov'):
         remaining_error = self.feature_remaining_error(truth=truth,mode=mode)
         return 1 - remaining_error
 
-    def compare_feature_residuals(self,other, mode='kendall_tau',no_plot=True):
-        from scipy.stats import kendalltau
+    def compare_feature_residuals(self,other, mode='rank_sum',no_plot=True):
+        from scipy.stats import ranksums
         from scipy.stats import ks_2samp
         from scipy.stats import t
 
         self_residuals = self.residuals()
         other_residuals = other.residuals()
 
-        if mode == 'kendall_tau':
-
-            print("Computing Kendall Tau")
-            self_sorted = np.argsort(self_residuals,axis=1)
-            other_sorted = np.argsort(other_residuals,axis=1)
-            print("Ranked")
-
-            results = [kendalltau(self_sorted[i],other_sorted[i]) for i in range(self_sorted.shape[1])]
+        if mode == 'rank_sum':
+            results = [ranksums(self_residuals[:,i],other_residuals[:,i]) for i in range(self_residuals.shape[1])]
 
         elif mode == 'kolmogorov_smirnov':
-
-            results = []
-
             results = [ks_2samp(self_residuals[:,i],other_residuals[:,i]) for i in range(self_residuals.shape[1])]
 
         elif mode == 'mse_delta':
@@ -3256,7 +3170,7 @@ class Prediction:
 
             prob = t.pdf(jackknife_z,len(self.forest.samples))
 
-            results = list,zip(jackknife_z,prob)
+            results = list(zip(jackknife_z,prob))
 
         else:
             raise Exception(f"Did not recognize mode:{mode}")
@@ -3264,16 +3178,16 @@ class Prediction:
         if not no_plot:
             plt.figure()
             plt.title("Distribution of Test Statistics")
-            plt.hist([test for test,p in results],log=True)
-            plt.xtitle("Test Statistic")
-            plt.ytitle("Frequency")
+            plt.hist([test for test,p in results],log=True,bins=50)
+            plt.xlabel("Test Statistic")
+            plt.ylabel("Frequency")
             plt.show()
 
             plt.figure()
             plt.title("Distribution of P Values")
-            plt.hist([p for test,p in results],log=True)
-            plt.xtitle("P Value")
-            plt.ytitle("Frequency")
+            plt.hist([p for test,p in results],log=True,bins=50)
+            plt.xlabel("P Value")
+            plt.ylabel("Frequency")
             plt.show()
 
         return results
@@ -3607,54 +3521,72 @@ class NodeCluster:
             selection, self.forest.output, sample_weight=weights)
 
         return top_features, factor_model, output_model
+    #
+    # def error_ratio(self, sample_matrix=None, scores=None):
+    #
+    #     # We would like to weigh the observed error by by the total of the cluster and its sisters, then by samples in the cluster only
+    #     # The ratio should give us an idea of how much of the variance is explained by the cluster split.
+    #
+    #     if sample_matrix is None:
+    #         sample_matrix = self.forest.output
+    #         scores = self.sister_scores()
+    #     if scores is None:
+    #         scores = self.sister_scores()
+    #
+    #     positive = scores.copy()
+    #     negative = scores.copy()
+    #
+    #     positive[scores < 0] = 0
+    #     negative[scores > 0] = 0
+    #     negative = np.abs(negative)
+    #
+    #     absolute = np.abs(scores)
+    #
+    #     positive_mean = np.average(sample_matrix, axis=0, weights=positive)
+    #     negative_mean = np.average(sample_matrix, axis=0, weights=negative)
+    #     absolute_mean = np.average(sample_matrix, axis=0, weights=absolute)
+    #
+    #     positive_error = np.sum(
+    #         np.dot(np.power(sample_matrix - positive_mean, 2).T, positive))
+    #     negative_error = np.sum(
+    #         np.dot(np.power(sample_matrix - negative_mean, 2).T, negative))
+    #     absolute_error = np.sum(
+    #         np.dot(np.power(sample_matrix - absolute_mean, 2).T, absolute))
+    #
+    #     positive_variance = positive_error / np.sum(positive)
+    #     negative_variance = negative_error / np.sum(negative)
+    #     absolute_variance = absolute_error / np.sum(absolute)
+    #
+    #     print(
+    #         f"Error: P:{positive_error},N:{negative_error},A:{absolute_error}")
+    #     print(
+    #         f"Variance: P:{positive_variance},N:{negative_variance},A:{absolute_variance}")
+    #
+    #     print(
+    #         f"Explained Error:{((positive_error + negative_error) - absolute_error)}")
+    #     explained_ratio = 1 - \
+    #         ((positive_error + negative_error) / absolute_error)
+    #     print(f"Explained Ratio: {explained_ratio}")
+    #
+    #     return (positive_error, negative_error, absolute_error)
 
-    def error_ratio(self, sample_matrix=None, scores=None):
+    def error_ratio(self):
 
-        # We would like to weigh the observed error by by the total of the cluster and its sisters, then by samples in the cluster only
-        # The ratio should give us an idea of how much of the variance is explained by the cluster split.
+        # We want to figure out how much of the error in a given feature is explained by the nodes in this cluster
+        # We want the overall ratio of error in the parents vs the error in the nodes of this cluster
 
-        if sample_matrix is None:
-            sample_matrix = self.forest.output
-            scores = self.sister_scores()
-        if scores is None:
-            scores = self.sister_scores()
 
-        positive = scores.copy()
-        negative = scores.copy()
+        parent_total_error = np.ones(len(self.forest.output_features))
+        sister_total_error = np.ones(len(self.forest.output_features))
+        self_total_error = np.ones(len(self.forest.output_features))
 
-        positive[scores < 0] = 0
-        negative[scores > 0] = 0
-        negative = np.abs(negative)
+        for node in self.nodes:
+            if node.parent is not None:
+                parent_total_error = np.sum(np.power(node.parent.residuals(),2),axis=0)
+                sister_total_error = np.sum(np.power(node.sister().residuals(),2),axis=0)
+                self_total_error += np.sum(np.power(node.residuals(),2),axis=0)
 
-        absolute = np.abs(scores)
 
-        positive_mean = np.average(sample_matrix, axis=0, weights=positive)
-        negative_mean = np.average(sample_matrix, axis=0, weights=negative)
-        absolute_mean = np.average(sample_matrix, axis=0, weights=absolute)
-
-        positive_error = np.sum(
-            np.dot(np.power(sample_matrix - positive_mean, 2).T, positive))
-        negative_error = np.sum(
-            np.dot(np.power(sample_matrix - negative_mean, 2).T, negative))
-        absolute_error = np.sum(
-            np.dot(np.power(sample_matrix - absolute_mean, 2).T, absolute))
-
-        positive_variance = positive_error / np.sum(positive)
-        negative_variance = negative_error / np.sum(negative)
-        absolute_variance = absolute_error / np.sum(absolute)
-
-        print(
-            f"Error: P:{positive_error},N:{negative_error},A:{absolute_error}")
-        print(
-            f"Variance: P:{positive_variance},N:{negative_variance},A:{absolute_variance}")
-
-        print(
-            f"Explained Error:{((positive_error + negative_error) - absolute_error)}")
-        explained_ratio = 1 - \
-            ((positive_error + negative_error) / absolute_error)
-        print(f"Explained Ratio: {explained_ratio}")
-
-        return (positive_error, negative_error, absolute_error)
 
     def weighted_covariance(self):
         scores = self.sister_scores()
@@ -3811,9 +3743,10 @@ class NodeCluster:
 
         attributes = {}
 
-        # changed_vs_parent,fold_vs_parent = self.changed_log_fold()
-        # changed_vs_all,fold_vs_all = self.changed_log_root()
-        # changed_vs_sister,fold_vs_sister = self.changed_log_sister()
+        changed_vs_parent,fold_vs_parent = self.changed_log_fold()
+        changed_vs_all,fold_vs_all = self.changed_log_root()
+        changed_vs_sister,fold_vs_sister = self.changed_log_sister()
+
 
         changed_vs_parent, fold_vs_parent = self.changed_absolute()
         changed_vs_all, fold_vs_all = self.changed_absolute_root()
@@ -4190,8 +4123,7 @@ def numpy_mad(mtx):
 
 def ssme(mtx, axis=None):
     medians = np.median(mtx, axis=0)
-    median_distances = np.abs(
-        mtx - np.tile(np.array(medians), (mtx.shape[0], 1)))
+    median_distances = mtx - np.tile(np.array(medians), (mtx.shape[0], 1))
     ssme = np.sum(np.power(median_distances, 2), axis=axis)
     return ssme
 
