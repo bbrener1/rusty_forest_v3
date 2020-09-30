@@ -230,6 +230,16 @@ class Node:
 
         return residuals
 
+    def squared_residual_sum(self):
+        if hasattr(self,'srs_cache'):
+            return self.srs_cache
+        else:
+            squared_residuals = np.power(self.mean_residuals(),2)
+            srs = np.sum(squared_residuals,axis=0)
+            if self.cache:
+                self.srs_cache = srs
+            return srs
+
     def dispersions(self, mode='mean'):
 
         # Dispersions of this node. Hardcoded for SSME at the moment.
@@ -264,7 +274,7 @@ class Node:
         else:
             parent_predictions = self.means()
         self_error = np.sum(np.power(counts - self_predictions,2),axis=0) + 1
-        parent_error = np.sum(np.power(counts - self_predictions,2),axis=0) + 1
+        parent_error = np.sum(np.power(counts - parent_predictions,2),axis=0) + 1
 
         return self_error / parent_error
 
@@ -1066,7 +1076,8 @@ class Forest:
         if mode == 'gain':
             print("Gain reduction")
             encoding = self.local_gain_matrix(nodes).T
-        elif mode == 'error_ratio'
+        elif mode == 'error_ratio':
+            encoding = self.error_ratio_matrix(nodes).T
         elif mode == 'additive':
             print("Additive reduction")
             encoding = self.additive_matrix(nodes).T
@@ -1180,7 +1191,7 @@ class Forest:
         return gains
 
     def error_ratio_matrix(self,nodes):
-        ratios = np.zeros(len(self.output_featues,len(nodes)))
+        ratios = np.zeros((len(self.output_features),len(nodes)))
         for i,node in enumerate(nodes):
             ratios[:,i] = node.mean_error_ratio()
         return ratios
@@ -3060,6 +3071,8 @@ class Prediction:
     def compare_factors(self, other, bins=20):
 
         from scipy.stats import entropy
+        from scipy.stats import ks_2samp
+        from scipy.stats import ranksums
 
         own_factors = self.factor_matrix()
         other_factors = other.factor_matrix()
@@ -3080,6 +3093,10 @@ class Prediction:
             average_entropy = (forward_entropy + reverse_entropy) / 2
             symmetric_entropy.append(average_entropy)
             print(f"{i} Entropy: {average_entropy}")
+            ks = ks_2samp(own_prob,other_prob)
+            print(f"Kolmogorov-Smirnov:{ks}")
+            mwu = ranksums(own_prob,other_prob)
+            print(f"Rank Sum:{mwu}")
 
         return symmetric_entropy
 
@@ -3105,7 +3122,10 @@ class Prediction:
 
         if not no_plot:
             plt.figure()
+            plt.title("Distribution of Target Coefficients of Determination")
             plt.hist(features_explained, bins=np.arange(0, 1, .05), log=True)
+            plt.xlabel("CoD")
+            plt.ylabel("Frequency")
             plt.show()
 
         feature_sort = np.argsort(features_explained)
@@ -3127,7 +3147,10 @@ class Prediction:
 
         if not no_plot:
             plt.figure()
+            plt.title("Distribution of Sample Coefficients of Determination")
             plt.hist(samples_explained, bins=np.arange(0, 1, .05), log=True)
+            plt.xlabel("CoD")
+            plt.ylabel("Frequency")
             plt.show()
 
         return features_explained, samples_explained
@@ -3153,10 +3176,10 @@ class Prediction:
     def feature_remaining_error(self, truth=None, mode='additive_mean'):
 
         null_square_residuals = np.power(self.null_residuals(truth=truth), 2)
-        null_residual_sum = np.sum(null_square_residuals)
+        null_residual_sum = np.sum(null_square_residuals,axis=0)
 
         forest_square_residuals = np.power(self.residuals(truth=truth), 2)
-        predicted_residual_sum = np.sum(forest_square_residuals)
+        predicted_residual_sum = np.sum(forest_square_residuals,axis=0)
 
         remaining = predicted_residual_sum / null_residual_sum
 
@@ -3555,41 +3578,32 @@ class NodeCluster:
     #         scores = self.sister_scores()
     #
     #     positive = scores.copy()
-    #     negative = scores.copy()
-    #
     #     positive[scores < 0] = 0
-    #     negative[scores > 0] = 0
-    #     negative = np.abs(negative)
     #
     #     absolute = np.abs(scores)
     #
-    #     positive_mean = np.average(sample_matrix, axis=0, weights=positive)
-    #     negative_mean = np.average(sample_matrix, axis=0, weights=negative)
-    #     absolute_mean = np.average(sample_matrix, axis=0, weights=absolute)
+    #     positive_mean = np.mean(self.forest.mean_matrix(self.nodes),axis=0)
+    #     absolute_mean = np.mean(self.forest.mean_matrix(self.parents()),axis=0)
+    #     # positive_mean = np.average(sample_matrix, axis=0, weights=positive)
+    #     # absolute_mean = np.average(sample_matrix, axis=0, weights=absolute)
     #
-    #     positive_error = np.sum(
-    #         np.dot(np.power(sample_matrix - positive_mean, 2).T, positive))
-    #     negative_error = np.sum(
-    #         np.dot(np.power(sample_matrix - negative_mean, 2).T, negative))
-    #     absolute_error = np.sum(
-    #         np.dot(np.power(sample_matrix - absolute_mean, 2).T, absolute))
-    #
-    #     positive_variance = positive_error / np.sum(positive)
-    #     negative_variance = negative_error / np.sum(negative)
-    #     absolute_variance = absolute_error / np.sum(absolute)
+    #     positive_error = np.dot(np.power(sample_matrix - positive_mean, 2).T, positive)
+    #     absolute_error = np.dot(np.power(sample_matrix - absolute_mean, 2).T, positive)
     #
     #     print(
-    #         f"Error: P:{positive_error},N:{negative_error},A:{absolute_error}")
-    #     print(
-    #         f"Variance: P:{positive_variance},N:{negative_variance},A:{absolute_variance}")
+    #         f"Error: P:{positive_error},A:{absolute_error}")
     #
     #     print(
-    #         f"Explained Error:{((positive_error + negative_error) - absolute_error)}")
-    #     explained_ratio = 1 - \
-    #         ((positive_error + negative_error) / absolute_error)
-    #     print(f"Explained Ratio: {explained_ratio}")
+    #         f"Error Ratio:{positive_error / absolute_error}")
     #
-    #     return (positive_error, negative_error, absolute_error)
+    #     error_ratio = positive_error / absolute_error
+    #
+    #     ratio_sort = np.argsort(error_ratio)
+    #
+    #     sorted_features = self.forest.output_features[ratio_sort]
+    #     sorted_ratios = error_ratio[ratio_sort]
+    #
+    #     return sorted_features, sorted_ratios
 
     def error_ratio(self):
 
@@ -3597,22 +3611,20 @@ class NodeCluster:
         # We want the overall ratio of error in the parents vs the error in the nodes of this cluster
 
         parent_total_error = np.ones(len(self.forest.output_features))
+        sister_total_error = np.ones(len(self.forest.output_features))
         self_total_error = np.ones(len(self.forest.output_features))
 
         for node in self.nodes:
             if node.parent is not None:
-                node_counts = node.node_counts()
-                node_residuals = node_counts - node.means()
-                parent_residuals = node_counts - node.parent.means()
-                self_total_error += np.sum(
-                    np.power(node_residuals, 2), axis=0)
-                parent_total_error += np.sum(
-                    np.power(parent_residuals, 2), axis=0)
+                self_total_error += node.squared_residual_sum()
+                sister_total_error += node.sister().squared_residual_sum()
+                parent_total_error += node.parent.squared_residual_sum()
 
         print(self_total_error)
+        print(sister_total_error)
         print(parent_total_error)
 
-        error_ratio = self_total_error / \
+        error_ratio = (self_total_error + sister_total_error) / \
             parent_total_error
 
         ratio_sort = np.argsort(error_ratio)
@@ -3778,6 +3790,7 @@ class NodeCluster:
         attributes = {}
 
         error_features, error_ratio = self.error_ratio()
+        coefficient_of_determination = 1 - error_ratio
 
         changed_vs_parent, fold_vs_parent = self.changed_log_fold()
         changed_vs_all, fold_vs_all = self.changed_log_root()
@@ -3795,9 +3808,9 @@ class NodeCluster:
         attributes['clusterName'] = str(self.name())
         attributes['clusterId'] = int(self.id)
         attributes['errorUp'] = generate_feature_value_html(
-            reversed(error_features[:n]), reversed(error_ratio[:n]), cmap='bwr')
+            error_features[-n:], coefficient_of_determination[-n:], cmap='bwr')
         attributes['errorDown'] = generate_feature_value_html(
-            reversed(error_features[-n:]), reversed(error_ratio[-n:]), cmap='bwr')
+            error_features[:n], coefficient_of_determination[:n], cmap='bwr')
         attributes['parentUpregulatedHtml'] = generate_feature_value_html(
             reversed(changed_vs_parent[-n:]), reversed(fold_vs_parent[-n:]), cmap='bwr')
         attributes['parentDownregulatedHtml'] = generate_feature_value_html(
@@ -3828,73 +3841,47 @@ class NodeCluster:
 
         return jsn_dumps(attributes)
 
-    def top_gene_cross_reference(self, n):
-        import matplotlib.patheffects as PathEffects
-
-        changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
-
-        important_features = list(
-            changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
-        important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
-        important_indices = [
-            self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
-
-        local_correlations = self.local_correlations()
-        global_correlations = self.forest.global_correlations()
-
-        selected_local = local_correlations[important_indices].T[important_indices].T
-        selected_global = local_correlations[important_indices].T[important_indices].T
-
-        fig = plt.figure(figsize=(n, n))
-        ax = fig.add_axes([.3, 0, .7, 1])
-        plt.title(f"Local Correlations in {self.name()}")
-        im = ax.imshow(selected_local, vmin=-1, vmax=1, cmap='bwr')
-        for i in range(n * 2):
-            for j in range(n * 2):
-                text = ax.text(j - .1, i - .1, np.around(selected_local[i, j], 3),
-                               ha="center", va="center", c='w', fontsize=6)
-                text.set_path_effects(
-                    [PathEffects.withStroke(linewidth=.5, foreground='black')])
-                text = ax.text(j + .25, i + .25, f"({np.around(selected_global[i, j],3)} g)",
-                               ha="center", va="center", c='w', fontsize=4)
-                text.set_path_effects(
-                    [PathEffects.withStroke(linewidth=.2, foreground='black')])
-
-        plt.xticks(np.arange(n * 2), labels=important_features, rotation=45)
-        plt.yticks(np.arange(n * 2), labels=important_features, rotation=45)
-        ax.yaxis.set_label_position("right")
-        plt.colorbar(im)
-        plt.show()
 
     def top_local(self, n, no_plot=False):
 
         import matplotlib.patheffects as PathEffects
+        #
+        # changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
+        #
+        # important_features = list(
+        #     changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
+        # important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
+        # important_indices = [
+        #     self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
 
-        changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
+        error_features,error_ratio = self.error_ratio()
 
-        important_features = list(
-            changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
-        important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
+        cod = 1 - error_ratio
+
+        important_features = list(error_features[:n*2])
+        important_ratios = list(cod[:n*2])
         important_indices = [
             self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
 
         local_correlations = self.local_correlations()
 
         selected_local = local_correlations[important_indices].T[important_indices].T
+
+        m = len(important_indices)
 
         fig = plt.figure(figsize=(n, n))
         ax = fig.add_axes([0, 0, 1, 1])
         plt.title(f"Local Correlations in {self.name()}")
         im = ax.imshow(selected_local, vmin=-1, vmax=1, cmap='bwr')
-        for i in range(n * 2):
-            for j in range(n * 2):
+        for i in range(m):
+            for j in range(m):
                 text = ax.text(j, i, np.around(selected_local[i, j], 3),
                                ha="center", va="center", c='w', fontsize=7)
                 text.set_path_effects(
                     [PathEffects.withStroke(linewidth=.5, foreground='black')])
 
-        plt.xticks(np.arange(n * 2), labels=important_features, rotation=45)
-        plt.yticks(np.arange(n * 2), labels=important_features, rotation=45)
+        plt.xticks(np.arange(m), labels=important_features, rotation=45)
+        plt.yticks(np.arange(m), labels=important_features, rotation=45)
         plt.colorbar(im)
         plt.tight_layout()
         if no_plot:
@@ -3906,12 +3893,21 @@ class NodeCluster:
     def top_global(self, n, no_plot=False):
 
         import matplotlib.patheffects as PathEffects
+        #
+        # changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
+        #
+        # important_features = list(
+        #     changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
+        # important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
+        # important_indices = [
+        #     self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
 
-        changed_vs_sister, fold_vs_sister = self.changed_absolute_sister()
+        error_features,error_ratio = self.error_ratio()
 
-        important_features = list(
-            changed_vs_sister[:n]) + list(changed_vs_sister[-n:])
-        important_folds = list(fold_vs_sister[:n]) + list(fold_vs_sister[-n:])
+        cod = 1 - error_ratio
+
+        important_features = list(error_features[:n*2])
+        important_ratios = list(cod[:n*2])
         important_indices = [
             self.forest.truth_dictionary.feature_dictionary[f] for f in important_features]
 
@@ -3919,19 +3915,21 @@ class NodeCluster:
 
         selected_global = global_correlations[important_indices].T[important_indices].T
 
+        m = len(important_indices)
+
         fig = plt.figure(figsize=(n, n))
         ax = fig.add_axes([0, 0, 1, 1])
         plt.title("Global Correlations")
         im = ax.imshow(selected_global, vmin=-1, vmax=1, cmap='bwr')
-        for i in range(n * 2):
-            for j in range(n * 2):
+        for i in range(m):
+            for j in range(m):
                 text = ax.text(j, i, np.around(selected_global[i, j], 3),
                                ha="center", va="center", c='w', fontsize=7)
                 text.set_path_effects(
                     [PathEffects.withStroke(linewidth=.5, foreground='black')])
 
-        plt.xticks(np.arange(n * 2), labels=important_features, rotation=45)
-        plt.yticks(np.arange(n * 2), labels=important_features, rotation=45)
+        plt.xticks(np.arange(m), labels=important_features, rotation=45)
+        plt.yticks(np.arange(m), labels=important_features, rotation=45)
         plt.colorbar(im)
         plt.tight_layout()
         if no_plot:
