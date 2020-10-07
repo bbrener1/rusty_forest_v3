@@ -113,13 +113,11 @@ where
     pub output_feature_subsample: usize,
 
     pub braid_thickness: usize,
-    pub smoothing:bool,
     pub scaling:bool,
+    pub reduce_input:bool,
+    pub reduce_output:bool,
 
-    pub prediction_mode: PredictionMode,
-    pub averaging_mode: AveragingMode,
     pub norm_mode: NormMode,
-    pub weighing_mode: WeighingMode,
     pub dispersion_mode: DispersionMode,
     pub split_fraction_regularization: f64,
     pub big_mem: bool,
@@ -172,11 +170,14 @@ pub fn read<V:SampleValue,T: Iterator<Item = String>>(args: &mut T) -> Parameter
                 arg_struct.output_count_array_file = single_count_array_file;
                 arg_struct.output_array = single_array;
             },
-            "-smoothing" | "-smooth" => {
-                arg_struct.smoothing = true;
-            },
             "-scale" | "-scaling" => {
                 arg_struct.scaling = true;
+            },
+            "-reduce_input" | "-ri" => {
+                arg_struct.reduce_input = true;
+            },
+            "-reduce_output" | "-ro" => {
+                arg_struct.reduce_output = true;
             },
 
             "-ic" | "-input_counts" | "-input" => {
@@ -185,20 +186,8 @@ pub fn read<V:SampleValue,T: Iterator<Item = String>>(args: &mut T) -> Parameter
             "-oc" | "-output_counts" | "-output" => {
                 arg_struct.output_array = Some(read_matrix(&args.next().expect("Error parsing output count location!")));
             }
-            "-m" | "-mode" | "-pm" | "-prediction_mode" | "-prediction" => {
-                arg_struct.prediction_mode = PredictionMode::read(&args.next().expect("Error reading prediction mode"));
-            },
-            "-am" | "-averaging_mode" | "-averaging" => {
-                arg_struct.averaging_mode = AveragingMode::read(&args.next().expect("Error reading averaging mode"));
-            }
-            "-d" | "-drop" | "-dropout_mode" => {
-                arg_struct.dropout = DropMode::read(&args.next().expect("Error reading dropout mode"));
-            },
             "-backups" | "-bk" => {
                 arg_struct.backups = Some(args.next().expect("Error parsing tree locations"));
-            },
-            "-wm" | "-w" | "-weighing_mode" => {
-                arg_struct.weighing_mode = WeighingMode::read(&args.next().expect("Failed to read weighing mode!"));
             },
             "-dm" | "-dispersion_mode" => {
                 arg_struct.dispersion_mode = DispersionMode::read(&args.next().expect("Failed to read split mode"));
@@ -344,13 +333,11 @@ impl<V: SampleValue> ParameterBook<V> {
             output_feature_subsample: 1,
 
             braid_thickness: 3,
-            smoothing:false,
             scaling:false,
+            reduce_input:false,
+            reduce_output:false,
 
-            prediction_mode: PredictionMode::Truncate,
-            averaging_mode: AveragingMode::Arithmetic,
             norm_mode: NormMode::L2,
-            weighing_mode: WeighingMode::Flat,
             dispersion_mode: DispersionMode::SSME,
             split_fraction_regularization: 0.5,
             big_mem: false,
@@ -421,7 +408,6 @@ impl<V: SampleValue> ParameterBook<V> {
 
         let dropout = DropMode::No;
 
-        let prediction_mode: PredictionMode = PredictionMode::Abort;
 
         println!("Automatic parameters:");
         // println!("fs:{:?}",feature_subsample);
@@ -432,7 +418,6 @@ impl<V: SampleValue> ParameterBook<V> {
         println!("t:{:?}",trees,);
         println!("l:{:?}",leaf_size_cutoff);
         println!("d:{:?}",dropout);
-        println!("pm:{:?}",prediction_mode);
 
         self.auto = true;
 
@@ -449,8 +434,6 @@ impl<V: SampleValue> ParameterBook<V> {
         self.max_splits = max_splits;
         self.dropout = dropout;
 
-        self.prediction_mode = prediction_mode;
-        self.averaging_mode = AveragingMode::Arithmetic;
 
     }
 
@@ -464,80 +447,6 @@ impl<V: SampleValue> ParameterBook<V> {
 pub enum BoostMode {
     Additive,
     Subsampling,
-}
-
-impl BoostMode {
-    pub fn read(input: &str) -> BoostMode {
-        match input {
-            "additive" | "a" | "add" => BoostMode::Additive,
-            "s" | "subsampling" | "subsample" => BoostMode::Subsampling,
-            _ => {
-                eprintln!("Not a valid boost mode, choose sub or add (defaulting to add)");
-                BoostMode::Additive
-            }
-        }
-    }
-
-}
-
-
-
-impl PredictionMode {
-    pub fn read(input:&str) -> PredictionMode {
-        match input {
-            "branch" | "branching" | "b" => PredictionMode::Branch,
-            "truncate" | "truncating" | "t" => PredictionMode::Truncate,
-            "abort" | "ab" => PredictionMode::Abort,
-            "auto" | "a" => PredictionMode::Auto,
-            _ => panic!("Not a valid prediction mode, choose branch, truncate, or abort.")
-        }
-    }
-}
-
-#[derive(Serialize,Deserialize,Debug,Clone,Copy)]
-pub enum PredictionMode {
-    Branch,
-    Truncate,
-    Abort,
-    Auto
-}
-
-#[derive(Serialize,Deserialize,Debug,Clone,Copy)]
-pub enum AveragingMode {
-    Arithmetic,
-    Stacking
-}
-
-impl AveragingMode {
-    pub fn read(input:&str) -> AveragingMode {
-        match input {
-            "a" | "arithmetic" | "average" => AveragingMode::Arithmetic,
-            "s" | "stacking" => AveragingMode::Stacking,
-            _ => panic!("Not a valid averaging mode, choose arithmetic or stacking.")
-        }
-    }
-}
-
-#[derive(Serialize,Deserialize,Debug,Clone,Copy)]
-pub enum WeighingMode {
-    AbsoluteGain,
-    AbsGainSquared,
-    AbsoluteDispersion,
-    AbsDispSquared,
-    Flat,
-}
-
-impl WeighingMode {
-    pub fn read(input:&str) -> WeighingMode {
-        match input {
-            "gain" | "absolute_gain" | "g" => WeighingMode::AbsoluteGain,
-            "gain_squared" | "gs" => WeighingMode::AbsGainSquared,
-            "dispersion" | "d" => WeighingMode::AbsoluteDispersion,
-            "dispersion_squared" | "ds" => WeighingMode::AbsDispSquared,
-            "flat" | "f" => WeighingMode::Flat,
-            _ => panic!("Not a valid weighing mode, please pick from gain, gain_squared, dispersion, dispersion_squared")
-        }
-    }
 }
 
 #[derive(Serialize,Deserialize,Debug,Clone,Copy)]

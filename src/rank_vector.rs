@@ -107,7 +107,6 @@ pub trait LinkedVector: Sized
 }
 
 pub trait NodeArena<K:SampleKey,V:SampleValue>: Index<K,Output=Node<K,V>> + IndexMut<K,Output=Node<K,V>> + Debug + Clone {
-    const ARRAY_LIMIT:usize = 1024;
 
     fn with_capacity(capacity:usize) -> Self;
     fn len(&self) -> usize;
